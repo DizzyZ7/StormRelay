@@ -1,0 +1,104 @@
+name: stormrelay
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: stormrelay
+      POSTGRES_USER: stormrelay
+      POSTGRES_PASSWORD: stormrelay
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stormrelay -d stormrelay"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  nats:
+    image: nats:2.11-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    networks: [backend]
+
+  server:
+    build:
+      context: ../..
+      args:
+        TARGET: stormrelay-server
+        VERSION: dev-compose
+    environment: &stormrelay-env
+      STORMRELAY_DATABASE_URL: postgres://stormrelay:stormrelay@postgres:5432/stormrelay?sslmode=disable
+      STORMRELAY_NATS_URL: nats://nats:4222
+      STORMRELAY_MASTER_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+      STORMRELAY_BOOTSTRAP_API_KEY: local-development-only-change-me
+      STORMRELAY_PUBLIC_BASE_URL: http://localhost:8080
+      STORMRELAY_AUTO_MIGRATE: "true"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [backend]
+
+  worker:
+    build:
+      context: ../..
+      args:
+        TARGET: stormrelay-worker
+        VERSION: dev-compose
+    environment:
+      <<: *stormrelay-env
+      STORMRELAY_WORKER_HTTP_ADDRESS: :8081
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8081/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [backend]
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on: [server, worker]
+    networks: [backend]
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]
+    networks: [backend]
+
+volumes:
+  postgres-data:
+  nats-data:
+networks:
+  backend:
+    driver: bridge

@@ -1,0 +1,11 @@
+/bin/
+/coverage.out
+*.test
+*.prof
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+web/node_modules/

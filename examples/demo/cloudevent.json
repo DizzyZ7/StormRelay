@@ -1,0 +1,18 @@
+{
+  "specversion": "1.0",
+  "id": "demo-cloud-event-1",
+  "source": "urn:demo:monitoring",
+  "type": "com.example.latency.alert",
+  "subject": "checkout/db-primary",
+  "time": "2026-07-10T12:00:00Z",
+  "datacontenttype": "application/json",
+  "severity": "critical",
+  "labels": {
+    "service": "checkout",
+    "environment": "production",
+    "resource": "db-primary"
+  },
+  "data": {
+    "observed_ms": 934
+  }
+}
