@@ -62,7 +62,11 @@ func NewClient(baseURL, apiKey string, options ...Option) (*Client, error) {
 		return nil, errors.New("API key is required")
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
-	client := &Client{baseURL: parsed, apiKey: apiKey, httpClient: &http.Client{Timeout: 30 * time.Second}, userAgent: "stormrelay-go/dev"}
+	client := &Client{
+		baseURL: parsed, apiKey: apiKey,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		userAgent:  "stormrelay-go/dev",
+	}
 	for _, option := range options {
 		if option != nil {
 			if err := option(client); err != nil {
@@ -90,21 +94,27 @@ func (e *APIError) Error() string {
 
 func (c *Client) Version(ctx context.Context) (Version, error) {
 	var out Version
-	return out, c.do(ctx, http.MethodGet, "/api/v1/version", "", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/api/v1/version", "", nil, &out)
+	return out, err
 }
 
 func (c *Client) ListIncidents(ctx context.Context, state, severity, service, cursor string, limit int) (IncidentList, error) {
-	query := url.Values{"state": []string{state}, "severity": []string{severity}, "service": []string{service}, "cursor": []string{cursor}}
+	query := url.Values{
+		"state": []string{state}, "severity": []string{severity},
+		"service": []string{service}, "cursor": []string{cursor},
+	}
 	if limit > 0 {
 		query.Set("limit", strconv.Itoa(limit))
 	}
 	var out IncidentList
-	return out, c.do(ctx, http.MethodGet, "/api/v1/incidents?"+query.Encode(), "", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/api/v1/incidents?"+query.Encode(), "", nil, &out)
+	return out, err
 }
 
 func (c *Client) GetIncident(ctx context.Context, incidentID string) (Incident, error) {
 	var out Incident
-	return out, c.do(ctx, http.MethodGet, "/api/v1/incidents/"+url.PathEscape(incidentID), "", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/api/v1/incidents/"+url.PathEscape(incidentID), "", nil, &out)
+	return out, err
 }
 
 func (c *Client) TransitionIncident(ctx context.Context, incidentID, action string, version int64, reason string) (Incident, error) {
@@ -112,22 +122,28 @@ func (c *Client) TransitionIncident(ctx context.Context, incidentID, action stri
 		return Incident{}, errors.New("incident action must be ack or resolve")
 	}
 	var out Incident
-	return out, c.do(ctx, http.MethodPost, "/api/v1/incidents/"+url.PathEscape(incidentID)+"/"+action, "application/json", map[string]any{"version": version, "reason": reason}, &out)
+	err := c.do(ctx, http.MethodPost, "/api/v1/incidents/"+url.PathEscape(incidentID)+"/"+action, "application/json", map[string]any{"version": version, "reason": reason}, &out)
+	return out, err
 }
 
 func (c *Client) ApplyRunbook(ctx context.Context, document []byte) (Runbook, error) {
 	var out Runbook
-	return out, c.do(ctx, http.MethodPost, "/api/v1/runbooks", "application/yaml", document, &out)
+	err := c.do(ctx, http.MethodPost, "/api/v1/runbooks", "application/yaml", document, &out)
+	return out, err
 }
 
 func (c *Client) StartExecution(ctx context.Context, runbookKey, incidentID string, dryRun bool, parameters map[string]any) (Execution, error) {
 	var out Execution
-	return out, c.do(ctx, http.MethodPost, "/api/v1/runbooks/"+url.PathEscape(runbookKey)+"/run", "application/json", map[string]any{"incident_id": incidentID, "dry_run": dryRun, "parameters": parameters}, &out)
+	err := c.do(ctx, http.MethodPost, "/api/v1/runbooks/"+url.PathEscape(runbookKey)+"/run", "application/json", map[string]any{
+		"incident_id": incidentID, "dry_run": dryRun, "parameters": parameters,
+	}, &out)
+	return out, err
 }
 
 func (c *Client) GetExecution(ctx context.Context, executionID string) (Execution, error) {
 	var out Execution
-	return out, c.do(ctx, http.MethodGet, "/api/v1/executions/"+url.PathEscape(executionID), "", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/api/v1/executions/"+url.PathEscape(executionID), "", nil, &out)
+	return out, err
 }
 
 func (c *Client) ListApprovals(ctx context.Context, executionID, status string) ([]Approval, error) {
@@ -144,22 +160,26 @@ func (c *Client) DecideApproval(ctx context.Context, approvalID, decision, reaso
 		return Execution{}, errors.New("approval decision must be approve or reject")
 	}
 	var out Execution
-	return out, c.do(ctx, http.MethodPost, "/api/v1/approvals/"+url.PathEscape(approvalID)+"/"+decision, "application/json", map[string]string{"reason": reason}, &out)
+	err := c.do(ctx, http.MethodPost, "/api/v1/approvals/"+url.PathEscape(approvalID)+"/"+decision, "application/json", map[string]string{"reason": reason}, &out)
+	return out, err
 }
 
 func (c *Client) CreateServiceAccount(ctx context.Context, name string, roles []string) (ServiceAccount, error) {
 	var out ServiceAccount
-	return out, c.do(ctx, http.MethodPost, "/api/v1/service-accounts", "application/json", map[string]any{"name": name, "roles": roles}, &out)
+	err := c.do(ctx, http.MethodPost, "/api/v1/service-accounts", "application/json", map[string]any{"name": name, "roles": roles}, &out)
+	return out, err
 }
 
 func (c *Client) CreateServiceAccountKey(ctx context.Context, accountID string, expiresAt *time.Time) (CreatedServiceAccountKey, error) {
 	var out CreatedServiceAccountKey
-	return out, c.do(ctx, http.MethodPost, "/api/v1/service-accounts/"+url.PathEscape(accountID)+"/keys", "application/json", map[string]any{"expires_at": expiresAt}, &out)
+	err := c.do(ctx, http.MethodPost, "/api/v1/service-accounts/"+url.PathEscape(accountID)+"/keys", "application/json", map[string]any{"expires_at": expiresAt}, &out)
+	return out, err
 }
 
 func (c *Client) RevokeServiceAccountKey(ctx context.Context, keyID string) (ServiceAccountKey, error) {
 	var out ServiceAccountKey
-	return out, c.do(ctx, http.MethodPost, "/api/v1/service-account-keys/"+url.PathEscape(keyID)+"/revoke", "application/json", map[string]any{}, &out)
+	err := c.do(ctx, http.MethodPost, "/api/v1/service-account-keys/"+url.PathEscape(keyID)+"/revoke", "application/json", map[string]any{}, &out)
+	return out, err
 }
 
 func (c *Client) do(ctx context.Context, method, path, contentType string, body, out any) error {
@@ -241,7 +261,10 @@ func decodeAPIError(status int, body []byte) error {
 		} `json:"error"`
 	}
 	if json.Unmarshal(body, &envelope) == nil && envelope.Error.Message != "" {
-		return &APIError{StatusCode: status, Code: envelope.Error.Code, Message: envelope.Error.Message, RequestID: envelope.Error.RequestID, Details: envelope.Error.Details}
+		return &APIError{
+			StatusCode: status, Code: envelope.Error.Code, Message: envelope.Error.Message,
+			RequestID: envelope.Error.RequestID, Details: envelope.Error.Details,
+		}
 	}
 	message := strings.TrimSpace(string(body))
 	if message == "" {
