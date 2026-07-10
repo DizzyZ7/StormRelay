@@ -51,7 +51,7 @@ func (s *Store) ListApprovals(ctx context.Context, tenantID, status, executionID
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.pool.Query(ctx, `SELECT a.id,a.tenant_id,a.execution_step_id,es.execution_id,es.step_key,COALESCE(a.prompt,''),a.status,a.requested_at,a.expires_at,a.decided_at,COALESCE(a.decided_by,''),COALESCE(a.reason,'') FROM approvals a JOIN execution_steps es ON es.id=a.execution_step_id WHERE a.tenant_id=$1 AND ($2='' OR a.status=$2) AND ($3='' OR es.execution_id=$3) ORDER BY a.requested_at DESC LIMIT $4`, tenantID, status, executionID, limit)
+	rows, err := s.pool.Query(ctx, `SELECT a.id,a.tenant_id,a.execution_step_id,es.execution_id,es.step_key,COALESCE(a.prompt,''),a.status,a.requested_at,a.expires_at,a.decided_at,COALESCE(a.decided_by,''),COALESCE(a.reason,'') FROM approvals a JOIN execution_steps es ON es.id=a.execution_step_id WHERE a.tenant_id=$1 AND ($2='' OR a.status=$2) AND (NULLIF($3,'')::uuid IS NULL OR es.execution_id=NULLIF($3,'')::uuid) ORDER BY a.requested_at DESC LIMIT $4`, tenantID, status, executionID, limit)
 	if err != nil {
 		return nil, err
 	}
