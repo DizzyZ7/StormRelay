@@ -51,6 +51,7 @@ jobs:
         with:
           name: unit-diagnostics
           path: |
+            go.mod
             go.sum
             vet.log
             unit.log
@@ -83,6 +84,8 @@ jobs:
         with:
           go-version: 1.26.x
           cache: false
+      - name: Resolve test dependencies
+        run: go mod tidy
       - name: Start NATS JetStream
         run: docker run --detach --name stormrelay-nats --publish 4222:4222 nats:2.11-alpine -js
       - name: Integration tests
