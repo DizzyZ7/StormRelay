@@ -1,3 +1,5 @@
-# Plugin runtime status
+# Process plugin runtime
 
-The out-of-process plugin protocol is documented in `docs/plugin-development.md`, but the runtime is not implemented in Milestone 1. No plugin is loaded into the control-plane process.
+Milestone 2 implements an out-of-process plugin runtime using `stormrelay.plugin/v1`. Plugin code is never loaded into the server or worker address space. Registration performs manifest discovery through the configured exact host allowlist; action calls enforce deadlines, bounded strict JSON, declared actions, protocol compatibility, and idempotency-key echo.
+
+See `docs/plugin-development.md` and the side-effect-free `examples/plugins/echo-python` implementation. Generic shell plugins are not supported.

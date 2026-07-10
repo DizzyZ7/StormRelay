@@ -12,4 +12,4 @@ The maintainers aim to acknowledge a report within five business days, establish
 
 ## Scope reminders
 
-Development bootstrap authentication is not production multi-user authentication. Shell actions and plugin execution are not implemented in Milestone 1. Claims about bypassing a feature that does not exist are not vulnerabilities, though design feedback is welcome.
+Development bootstrap authentication is not production multi-user authentication. Milestone 2 adds HTTP and process-plugin actions, but generic shell execution remains disabled and unimplemented. Outbound destinations require explicit host allowlists, redirects are rejected, DNS results are pinned for each request, and loopback/link-local/metadata addresses are prohibited. OIDC, tenant-aware RBAC, and service accounts remain Milestone 3 work.
