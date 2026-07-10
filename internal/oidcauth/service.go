@@ -68,7 +68,7 @@ func Discover(ctx context.Context, issuer string) (Discovery, error) {
 		return Discovery{}, fmt.Errorf("issuer: %w", err)
 	}
 	discoveryURL := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
-	guard := networkguard.New([]string{parsedIssuer.Hostname()})
+	guard := networkguard.NewPublic([]string{parsedIssuer.Hostname()})
 	client, _, err := guard.Client(ctx, discoveryURL, outboundTimeout)
 	if err != nil {
 		return Discovery{}, fmt.Errorf("guard discovery endpoint: %w", err)
@@ -105,7 +105,7 @@ func Discover(ctx context.Context, issuer string) (Discovery, error) {
 	if err != nil {
 		return Discovery{}, fmt.Errorf("jwks_uri: %w", err)
 	}
-	if _, err := networkguard.New([]string{parsedJWKS.Hostname()}).Resolve(ctx, document.JWKSURI); err != nil {
+	if _, err := networkguard.NewPublic([]string{parsedJWKS.Hostname()}).Resolve(ctx, document.JWKSURI); err != nil {
 		return Discovery{}, fmt.Errorf("guard jwks_uri: %w", err)
 	}
 	algs := safeSigningAlgs(document.SupportedSigningAlgs)
@@ -175,7 +175,7 @@ func (s *Service) newRemoteVerifier(ctx context.Context, provider storage.OIDCPr
 	if err != nil {
 		return nil, err
 	}
-	client, _, err := networkguard.New([]string{parsedJWKS.Hostname()}).Client(ctx, provider.JWKSURI, outboundTimeout)
+	client, _, err := networkguard.NewPublic([]string{parsedJWKS.Hostname()}).Client(ctx, provider.JWKSURI, outboundTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("guard OIDC key endpoint: %w", err)
 	}
