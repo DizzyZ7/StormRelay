@@ -59,15 +59,20 @@ func run(args []string) error {
 	if *timeout <= 0 || *timeout > 2*time.Minute {
 		return errors.New("--timeout must be greater than zero and at most two minutes")
 	}
-	input, err := decodeInput(*inputText)
+	inputValue, err := decodeInput(*inputText)
 	if err != nil {
 		return err
+	}
+	input, err := json.Marshal(inputValue)
+	if err != nil {
+		return fmt.Errorf("encode --input: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+	bearerToken := strings.TrimSpace(*bearer)
 	client := pluginprotocol.NewClient([]string{parsed.Hostname()})
-	manifest, err := client.Discover(ctx, parsed.String(), strings.TrimSpace(*bearer))
+	manifest, err := client.Discover(ctx, parsed.String(), bearerToken, *timeout)
 	if err != nil {
 		return fmt.Errorf("manifest discovery: %w", err)
 	}
@@ -78,19 +83,12 @@ func run(args []string) error {
 		}
 		selectedAction = manifest.Actions[0].Name
 	}
-	declared := false
-	for _, item := range manifest.Actions {
-		if item.Name == selectedAction {
-			declared = true
-			break
-		}
-	}
-	if !declared {
+	if !pluginprotocol.ManifestHasAction(manifest, selectedAction) {
 		return fmt.Errorf("action %q is not declared by the manifest", selectedAction)
 	}
 	requestID := fmt.Sprintf("conformance-%d", time.Now().UnixNano())
 	idempotencyKey := requestID + ":idempotency"
-	response, err := client.Call(ctx, parsed.String(), strings.TrimSpace(*bearer), selectedAction, pluginprotocol.Request{
+	response, err := client.Call(ctx, parsed.String(), selectedAction, bearerToken, pluginprotocol.ActionRequest{
 		ProtocolVersion: pluginprotocol.ProtocolVersion,
 		ExecutionID:     requestID + ":execution",
 		StepID:          requestID + ":step",
@@ -98,7 +96,7 @@ func run(args []string) error {
 		Deadline:        time.Now().Add(*timeout).UTC(),
 		IdempotencyKey:  idempotencyKey,
 		Input:           input,
-	})
+	}, *timeout)
 	if err != nil {
 		return fmt.Errorf("action invocation: %w", err)
 	}
