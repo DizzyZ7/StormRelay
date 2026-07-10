@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -33,6 +34,9 @@ func FinishHTTPServerSpan(span trace.Span, method string, status int, route stri
 	}
 	if route == "" {
 		route = "unmatched"
+	}
+	if routeMethod, routePath, found := strings.Cut(route, " "); found && routeMethod == method {
+		route = routePath
 	}
 	span.SetName(method + " " + route)
 	span.SetAttributes(
