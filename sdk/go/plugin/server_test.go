@@ -138,7 +138,7 @@ func TestManifestValidation(t *testing.T) {
 func validRequest() Request {
 	return Request{
 		ProtocolVersion: ProtocolVersion,
-		ExecutionID: "execution", StepID: "step", RequestID: "request",
+		ExecutionID:     "execution", StepID: "step", RequestID: "request",
 		Deadline: time.Now().Add(time.Hour).UTC(), IdempotencyKey: "idempotency",
 		Input: json.RawMessage(`{}`),
 	}
