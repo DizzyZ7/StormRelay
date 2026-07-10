@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -138,6 +139,9 @@ func envFloatStrict(name string, fallback float64) (float64, error) {
 	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be a number: %w", name, err)
+	}
+	if math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return 0, fmt.Errorf("%s must be a finite number", name)
 	}
 	return parsed, nil
 }
