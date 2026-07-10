@@ -47,7 +47,7 @@ func (s *Store) ClaimExecutionSteps(ctx context.Context, workerID string, limit 
 	UPDATE execution_steps es
 	SET status=CASE WHEN es.is_rollback THEN 'rolling_back' ELSE 'running' END,
 	    lease_owner=$2,lease_expires_at=now()+$3::interval,
-	    attempt_count=attempt_count+1,started_at=COALESCE(started_at,now()),version=version+1
+	    attempt_count=es.attempt_count+1,started_at=COALESCE(es.started_at,now()),version=es.version+1
 	FROM candidates c,executions e
 	WHERE es.id=c.id AND e.id=es.execution_id
 	RETURNING es.id,es.execution_id,es.position,es.step_key,COALESCE(es.name,''),es.step_type,es.immutable_input,es.status,es.timeout_seconds,es.retry_policy,es.attempt_count,COALESCE(es.output,'null'::jsonb),COALESCE(es.sanitized_error,''),es.correlation_id,es.idempotency_key,es.started_at,es.finished_at,es.next_attempt_at,es.wait_until,COALESCE(es.lease_owner,''),es.lease_expires_at,COALESCE(es.rollback_definition,'null'::jsonb),es.is_rollback,COALESCE(es.rollback_of::text,''),es.version,e.tenant_id,COALESCE(e.incident_id::text,''),e.dry_run,e.input_snapshot`, limit, workerID, durationInterval(lease))
