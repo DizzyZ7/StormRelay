@@ -59,9 +59,9 @@ type CreateOIDCIdentityInput struct {
 
 type UpdateOIDCIdentityInput struct {
 	TenantID, ID, ActorID, RequestID, TraceID string
-	Enabled                                    bool
-	Roles                                      []auth.Role
-	ExpectedVersion                            int64
+	Enabled                                   bool
+	Roles                                     []auth.Role
+	ExpectedVersion                           int64
 }
 
 func (s *Store) CreateOIDCProvider(ctx context.Context, in CreateOIDCProviderInput) (OIDCProvider, error) {
