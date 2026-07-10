@@ -1,0 +1,359 @@
+openapi: 3.1.0
+info:
+  title: StormRelay API
+  version: 0.1.0-dev
+  description: Versioned API for StormRelay event ingestion and incident operations.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      operationId: health
+      responses:
+        '200': {description: Process is alive}
+  /readyz:
+    get:
+      security: []
+      operationId: readiness
+      responses:
+        '200': {description: Dependencies and migrations are ready}
+        '503': {description: A dependency is unavailable}
+  /metrics:
+    get:
+      security: []
+      operationId: metrics
+      responses:
+        '200': {description: Prometheus text exposition}
+  /api/v1/version:
+    get:
+      operationId: getVersion
+      responses:
+        '200':
+          description: Server and contract versions
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: {type: string}}
+  /api/v1/sources:
+    get:
+      operationId: listSources
+      responses:
+        '200':
+          description: Event sources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Source'}}
+    post:
+      operationId: createSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateSource'}
+      responses:
+        '201':
+          description: Source created; credential is returned once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [source]
+                properties:
+                  source: {$ref: '#/components/schemas/Source'}
+                  credential: {type: string, description: Returned once and never logged}
+        '400': {$ref: '#/components/responses/Error'}
+  /api/v1/sources/{sourceId}/test:
+    post:
+      operationId: testSource
+      parameters:
+        - {$ref: '#/components/parameters/SourceId'}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/webhooks/{sourceId}:
+    post:
+      security: []
+      operationId: ingestWebhook
+      parameters:
+        - {$ref: '#/components/parameters/SourceId'}
+        - name: Idempotency-Key
+          in: header
+          schema: {type: string, maxLength: 256}
+        - name: X-Event-ID
+          in: header
+          schema: {type: string, maxLength: 512}
+        - name: X-StormRelay-Timestamp
+          in: header
+          description: Unix timestamp required for hmac-sha256 sources.
+          schema: {type: string}
+        - name: X-StormRelay-Signature
+          in: header
+          description: sha256=hex(HMAC(secret, timestamp + '.' + raw body)).
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+          application/cloudevents+json:
+            schema: {$ref: '#/components/schemas/CloudEvent'}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/incidents:
+    get:
+      operationId: listIncidents
+      parameters:
+        - {name: state, in: query, schema: {$ref: '#/components/schemas/IncidentState'}}
+        - {name: severity, in: query, schema: {$ref: '#/components/schemas/Severity'}}
+        - {name: service, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+        - {name: cursor, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: Cursor-paginated incidents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Incident'}}
+                  next_cursor: {type: string}
+    post:
+      operationId: createManualIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: {type: string, minLength: 1, maxLength: 512}
+                severity: {$ref: '#/components/schemas/Severity'}
+                service: {type: string}
+                environment: {type: string}
+                resource: {type: string}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+  /api/v1/incidents/{incidentId}:
+    get:
+      operationId: getIncident
+      parameters:
+        - {$ref: '#/components/parameters/IncidentId'}
+      responses:
+        '200':
+          description: Incident
+          content: {application/json: {schema: {$ref: '#/components/schemas/Incident'}}}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/incidents/{incidentId}/events:
+    get:
+      operationId: listIncidentEvents
+      parameters:
+        - {$ref: '#/components/parameters/IncidentId'}
+      responses:
+        '200': {description: Events attached to the incident}
+  /api/v1/incidents/{incidentId}/ack:
+    post:
+      operationId: acknowledgeIncident
+      parameters:
+        - {$ref: '#/components/parameters/IncidentId'}
+      requestBody: {$ref: '#/components/requestBodies/Transition'}
+      responses:
+        '200': {description: Incident acknowledged, content: {application/json: {schema: {$ref: '#/components/schemas/Incident'}}}}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/incidents/{incidentId}/resolve:
+    post:
+      operationId: resolveIncident
+      parameters:
+        - {$ref: '#/components/parameters/IncidentId'}
+      requestBody: {$ref: '#/components/requestBodies/Transition'}
+      responses:
+        '200': {description: Incident resolved, content: {application/json: {schema: {$ref: '#/components/schemas/Incident'}}}}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/ack/{token}:
+    get:
+      security: []
+      operationId: acknowledgeWithToken
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Incident acknowledged}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/policies:
+    get:
+      operationId: listPolicies
+      responses:
+        '200': {description: Policies}
+    post:
+      operationId: applyPolicy
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema: {type: string}
+      responses:
+        '201': {description: Immutable policy version created}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/policies/validate:
+    post:
+      operationId: validatePolicy
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema: {type: string}
+      responses:
+        '200': {description: Policy is valid}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/notification-channels:
+    get:
+      operationId: listNotificationChannels
+      responses:
+        '200': {description: Notification channels}
+    post:
+      operationId: createNotificationChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, kind, config]
+              properties:
+                key: {type: string}
+                kind: {type: string, enum: [mock, telegram]}
+                config: {type: object}
+      responses:
+        '201': {description: Channel created}
+  /api/v1/audit/export:
+    get:
+      operationId: exportAudit
+      parameters:
+        - name: after
+          in: query
+          schema: {type: string, format: date-time}
+      responses:
+        '200':
+          description: Append-only audit records in JSON Lines
+          content:
+            application/x-ndjson:
+              schema: {type: string}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    SourceId: {name: sourceId, in: path, required: true, schema: {type: string, format: uuid}}
+    IncidentId: {name: incidentId, in: path, required: true, schema: {type: string, format: uuid}}
+  requestBodies:
+    Transition:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [version]
+            properties:
+              version: {type: integer, minimum: 1}
+              reason: {type: string, maxLength: 1000}
+  responses:
+    Accepted:
+      description: Accepted after JetStream publish acknowledgement
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [accepted, event_id]
+            properties:
+              accepted: {type: boolean, const: true}
+              event_id: {type: string}
+              request_id: {type: string}
+    Error:
+      description: Consistent error envelope
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+  schemas:
+    Severity: {type: string, enum: [info, warning, error, critical]}
+    IncidentState: {type: string, enum: [detected, acknowledged, investigating, mitigated, resolved, closed, reopened]}
+    Source:
+      type: object
+      required: [id, tenant_id, name, kind, auth_mode, enabled]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        name: {type: string}
+        kind: {type: string}
+        auth_mode: {type: string, enum: [none, hmac-sha256, bearer]}
+        enabled: {type: boolean}
+        rate_limit_per_second: {type: integer}
+        rate_limit_burst: {type: integer}
+        version: {type: integer}
+    CreateSource:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1}
+        kind: {type: string, enum: [generic, cloudevents, alertmanager, grafana, sentry, github], default: generic}
+        auth_mode: {type: string, enum: [none, hmac-sha256, bearer], default: hmac-sha256}
+        rate_limit_per_second: {type: integer, minimum: 1, default: 20}
+        rate_limit_burst: {type: integer, minimum: 1, default: 40}
+    CloudEvent:
+      type: object
+      required: [specversion, id, source, type, data]
+      properties:
+        specversion: {type: string, const: '1.0'}
+        id: {type: string}
+        source: {type: string}
+        type: {type: string}
+        subject: {type: string}
+        time: {type: string, format: date-time}
+        datacontenttype: {type: string}
+        severity: {$ref: '#/components/schemas/Severity'}
+        labels: {type: object, additionalProperties: {type: string}}
+        data: {}
+    Incident:
+      type: object
+      required: [id, title, state, severity, first_event_at, last_event_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        state: {$ref: '#/components/schemas/IncidentState'}
+        severity: {$ref: '#/components/schemas/Severity'}
+        service: {type: string}
+        environment: {type: string}
+        first_event_at: {type: string, format: date-time}
+        last_event_at: {type: string, format: date-time}
+        acknowledged_at: {type: [string, 'null'], format: date-time}
+        resolved_at: {type: [string, 'null'], format: date-time}
+        event_count: {type: integer}
+        duplicate_count: {type: integer}
+        version: {type: integer}
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            request_id: {type: string}
+            details: {}
