@@ -2,10 +2,13 @@ package telemetry
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -78,10 +81,35 @@ func TestEventConsumerSpanContinuesIngressTrace(t *testing.T) {
 	}
 }
 
+func TestEventConsumerSpanBoundsUserControlledAttributes(t *testing.T) {
+	recorder, cleanup := installSpanRecorder(t)
+	defer cleanup()
+
+	longValue := strings.Repeat("я", maxSpanAttributeBytes)
+	invalidUTF8 := longValue + string([]byte{0xff, 0xfe})
+	_, span := StartEventConsumerSpan(context.Background(), "", invalidUTF8, invalidUTF8, invalidUTF8)
+	span.End()
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("ended spans=%d", len(spans))
+	}
+	for _, key := range []string{"messaging.message.id", "event.type", "event.source"} {
+		value := stringAttribute(spans[0].Attributes(), key)
+		if len(value) > maxSpanAttributeBytes {
+			t.Fatalf("%s length=%d", key, len(value))
+		}
+		if !utf8.ValidString(value) {
+			t.Fatalf("%s is not valid UTF-8", key)
+		}
+	}
+}
+
 func TestSetupTracingValidationAndDisabledProvider(t *testing.T) {
 	for name, cfg := range map[string]TracingConfig{
 		"missing service": {ExportTimeout: time.Second},
 		"invalid ratio":   {ServiceName: "test", SampleRatio: 1.1, ExportTimeout: time.Second},
+		"NaN ratio":       {ServiceName: "test", SampleRatio: math.NaN(), ExportTimeout: time.Second},
+		"infinite ratio":  {ServiceName: "test", SampleRatio: math.Inf(1), ExportTimeout: time.Second},
 		"invalid timeout": {ServiceName: "test", SampleRatio: 0.1},
 		"invalid scheme":  {ServiceName: "test", Endpoint: "ftp://collector:4317", SampleRatio: 0.1, ExportTimeout: time.Second},
 		"endpoint path":   {ServiceName: "test", Endpoint: "http://collector:4317/v1/traces", SampleRatio: 0.1, ExportTimeout: time.Second},
