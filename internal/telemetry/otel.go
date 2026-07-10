@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 const instrumentationName = "github.com/DizzyZ7/StormRelay"
@@ -46,10 +46,9 @@ func SetupTracing(ctx context.Context, cfg TracingConfig, logger *slog.Logger) (
 
 	endpoint := strings.TrimSpace(cfg.Endpoint)
 	providerOptions := []sdktrace.TracerProviderOption{
-		sdktrace.WithResource(resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(cfg.ServiceName),
-			semconv.ServiceVersion(cfg.Version),
+		sdktrace.WithResource(resource.NewSchemaless(
+			attribute.String("service.name", cfg.ServiceName),
+			attribute.String("service.version", cfg.Version),
 		)),
 	}
 
@@ -110,8 +109,8 @@ func validateOTLPEndpoint(endpoint string) error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("OTLP trace endpoint scheme must be http or https")
 	}
-	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return fmt.Errorf("OTLP trace endpoint must not contain userinfo, query, or fragment")
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return fmt.Errorf("OTLP trace endpoint must not contain userinfo, path, query, or fragment")
 	}
 	return nil
 }
