@@ -2,9 +2,9 @@
 
 StormRelay is a self-hosted event-correlation and incident-response control plane for small product teams, SRE, NOC, DevOps, and security operations.
 
-It accepts authenticated webhooks, preserves the original payload, normalizes events into a CloudEvents-compatible model, deduplicates concurrent deliveries, correlates events into incidents, evaluates explainable policies, notifies responders, and records an append-only audit trail.
+It accepts authenticated webhooks, preserves the original payload, normalizes events into a CloudEvents-compatible model, deduplicates concurrent deliveries, correlates events into incidents, evaluates explainable policies, notifies responders, runs durable response automation, and records an append-only audit trail.
 
-> **Current status:** Milestones 0 and 1 are released on `main`; Milestone 2 is under review. The current branch adds durable versioned runbooks, persisted wait/approval state, retries, crash recovery, explicit rollback, and the process-based plugin protocol. OIDC, the web UI, full OpenTelemetry exporters, SDKs, Kubernetes packaging, and release automation remain later milestones.
+> **Current status:** Milestones 0–2 and the first Milestone 3 identity/developer-platform slice are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, and supported Go/Python SDKs. The current branch adds guarded OIDC federation with explicit subject mappings. The web UI, full OpenTelemetry exporters, Kubernetes packaging, and release automation remain later milestones.
 
 ## Why not only Alertmanager or a webhook router?
 
@@ -36,113 +36,49 @@ SOURCE_ID=$(printf '%s' "$SOURCE_JSON" | jq -r '.source.id')
 SOURCE_SECRET=$(printf '%s' "$SOURCE_JSON" | jq -r '.credential')
 ```
 
-Send an event. The signature is `HMAC-SHA256(secret, timestamp + "." + raw_body)`:
+Send a signed event:
 
 ```bash
-BODY='{"type":"latency.alert","subject":"Checkout database latency","severity":"critical","labels":{"service":"checkout","environment":"production","resource":"db-primary","alertname":"HighLatency"}}'
-TS=$(date +%s)
-SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SOURCE_SECRET" -hex | awk '{print $2}')
+BODY='{"title":"Checkout error rate increased","severity":"critical","service":"checkout","environment":"production","labels":{"region":"eu-west"}}'
+TIMESTAMP=$(date +%s)
+SIGNATURE=$(printf '%s.%s' "$TIMESTAMP" "$BODY" | openssl dgst -sha256 -hmac "$SOURCE_SECRET" -binary | xxd -p -c 256)
 
-curl -fsS \
-  -H "X-StormRelay-Timestamp: $TS" \
-  -H "X-StormRelay-Signature: sha256=$SIG" \
-  -H 'Idempotency-Key: demo-checkout-latency-1' \
+curl -i \
+  -H "X-StormRelay-Timestamp: $TIMESTAMP" \
+  -H "X-StormRelay-Signature: sha256=$SIGNATURE" \
   -H 'Content-Type: application/json' \
-  --data-binary "$BODY" \
-  "http://localhost:8080/api/v1/webhooks/$SOURCE_ID" | jq
+  --data "$BODY" \
+  "http://localhost:8080/api/v1/webhooks/$SOURCE_ID"
 ```
 
-Inspect and acknowledge the incident:
+List incidents:
 
 ```bash
 curl -fsS \
   -H 'Authorization: Bearer local-development-only-change-me' \
   http://localhost:8080/api/v1/incidents | jq
-
-# Use the returned id and version.
-curl -fsS \
-  -H 'Authorization: Bearer local-development-only-change-me' \
-  -H 'Content-Type: application/json' \
-  -d '{"version":1,"reason":"Responder accepted ownership"}' \
-  http://localhost:8080/api/v1/incidents/INCIDENT_ID/ack | jq
 ```
 
-Prometheus is available at `http://localhost:9090`; Grafana is available at `http://localhost:3000` with local credentials `admin` / `admin`.
+## Configuration
 
-## Event lifecycle
+All server and worker settings use the `STORMRELAY_` prefix. See `.env.example` and `docs/operations.md` for the complete development configuration.
 
-```mermaid
-flowchart LR
-    S[Webhook source] -->|HMAC or bearer| G[Ingestion gateway]
-    G -->|publish ack| J[(NATS JetStream)]
-    J --> W[Bounded worker]
-    W --> R[(Raw event)]
-    W --> D{Dedupe constraint}
-    D -->|duplicate| DD[(Duplicate record + audit)]
-    D -->|canonical| C[Correlation lock]
-    C --> I[(Incident)]
-    I --> P[Policy evaluation]
-    P --> O[(Notification outbox)]
-    O --> N[Mock or Telegram]
-    N --> A[Acknowledgement]
-    A --> AU[(Append-only audit)]
-```
+Important security settings include:
 
-The HTTP gateway returns `202 Accepted` only after JetStream confirms publication. The worker acknowledges the JetStream message only after the PostgreSQL transaction commits.
+- `STORMRELAY_MASTER_KEY`: base64-encoded 32-byte key used for encrypted integration secrets.
+- `STORMRELAY_BOOTSTRAP_API_KEY`: initial tenant-admin key; replace it outside local development.
+- `STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS`: exact hosts available to runbook HTTP steps.
+- `STORMRELAY_PLUGIN_ALLOWED_HOSTS`: exact hosts available to process plugins.
 
-## Architecture at a glance
+OIDC providers are registered through the tenant-admin API rather than environment variables. Registration performs guarded discovery and stores the exact issuer, API audience, JWKS URI, and allowed asymmetric signing algorithms. See `docs/identity.md`.
 
-```mermaid
-flowchart TB
-    subgraph ControlPlane
-      API[stormrelay-server]
-      Worker[stormrelay-worker]
-      CLI[stormrelay CLI]
-    end
-    API --> JS[(JetStream)]
-    Worker --> JS
-    API --> PG[(PostgreSQL)]
-    Worker --> PG
-    Worker --> Providers[Notification providers]
-    CLI --> API
-```
-
-Important decisions:
-
-1. PostgreSQL is the source of truth for events, incidents, policy versions, delivery state, and audit.
-2. JetStream provides durable at-least-once transport and bounded backpressure.
-3. Raw payloads are stored separately from normalized fields.
-4. Secrets that must be recovered are encrypted with AES-256-GCM; bearer credentials are stored only as SHA-256 hashes.
-5. Policy evaluation uses a versioned YAML DSL with `all`, `any`, `not`, `equals`, and `in`; arbitrary evaluation is prohibited.
-6. External notification calls happen after the event transaction through a durable outbox.
-
-Read [the architecture document](docs/architecture.md), [threat model](docs/threat-model.md), and [operations guide](docs/operations.md).
-
-## Repository layout
-
-```text
-cmd/                    server, worker, and CLI entry points
-internal/api/           HTTP API and middleware
-internal/events/        CloudEvents-compatible model and normalization
-internal/ingestion/     signatures, replay checks, and rate limits
-internal/storage/       pgx repositories, transactions, and SQL migrations
-internal/policies/      safe declarative policy DSL
-internal/worker/        JetStream consumer and recovery behavior
-internal/notifications/ mock and Telegram delivery adapters
-api/openapi/            OpenAPI 3.1 contract
-deploy/compose/         runnable local environment
-docs/                   architecture, threat model, ADRs, and operations
-examples/               demo policies and payloads
-tests/integration/      PostgreSQL, concurrency, and JetStream tests
-```
-
-## CLI
+## Command-line client
 
 ```bash
 go build -o stormrelay ./cmd/stormrelay-cli
 ./stormrelay login --url http://localhost:8080 --api-key local-development-only-change-me
+./stormrelay server version
 ./stormrelay doctor
-./stormrelay sources list
 ./stormrelay incidents list
 ./stormrelay policies validate examples/demo/policy.yaml
 ./stormrelay policies apply examples/demo/policy.yaml
@@ -156,71 +92,32 @@ go build -o stormrelay ./cmd/stormrelay-cli
 
 The CLI stores its configuration with mode `0600` in the operating system user configuration directory.
 
-## Policy example
+## SDKs
 
-```yaml
-apiVersion: stormrelay.io/v1
-kind: Policy
-metadata:
-  id: critical-production
-  version: 1
-spec:
-  match:
-    all:
-      - field: severity
-        equals: critical
-      - field: environment
-        in: [production]
-  actions:
-    notificationChannels: [local-mock]
-    requireApproval: true
-```
+Supported Go and Python clients live under `sdk/`. Both use bearer authentication, bounded response parsing, and typed API errors. The Python client has no external runtime dependencies. OIDC access tokens may be supplied through the same API-key constructor/header field because StormRelay uses one bearer credential surface.
 
-Every evaluation writes the policy ID, version, outcome, explanation, and the bounded normalized inputs that affected the decision to audit. Raw event payloads are never copied into policy audit metadata.
+## Security boundaries
 
-## Reliability boundaries
+- Arbitrary shell execution is not supported.
+- Runbook and plugin outbound requests use exact host allowlists, DNS pinning, redirect rejection, disabled proxies, payload bounds, and deadlines.
+- OIDC trust endpoints additionally require public IP destinations and reject private/loopback/link-local/metadata/CGNAT ranges.
+- OIDC email claims are not used for account linking; provider subjects require explicit tenant-admin mappings.
+- The server never logs service-account credentials, OIDC tokens, webhook secrets, or raw authorization headers.
+- Protected API routes are fail-closed: new route families require an explicit permission mapping.
 
-- Delivery is at least once from gateway to worker.
-- Concurrent duplicates produce one canonical event plus explicit duplicate records.
-- Correlation is serialized per correlation key with a PostgreSQL advisory transaction lock.
-- Incident updates use version columns and validate the state machine in domain code.
-- A worker crash before commit causes redelivery. A crash after commit but before ack causes a duplicate record, not a second canonical event.
-- Notification rows use a unique dedupe key and delivery leases. An expired external-provider lease becomes `ambiguous` rather than being blindly repeated.
-- After five poison-message deliveries, the worker publishes the payload to the dead-letter subject and acknowledges the original message.
+See `SECURITY.md`, `docs/threat-model.md`, and `docs/identity.md` for details.
 
 ## Development
 
 ```bash
-make fmt
-make vet
 make test
 make test-race
 make build
+make compose-smoke
 ```
 
-Integration tests require PostgreSQL and NATS JetStream:
+Integration tests require PostgreSQL and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, and CodeQL.
 
-```bash
-go test -tags=integration -count=1 ./tests/integration
-```
+## Project status and releases
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Compatibility
-
-| Surface | Current contract |
-|---|---|
-| HTTP API | `/api/v1`; additive changes preferred before v1.0 |
-| Internal event schema | `1.0` |
-| Policy DSL | `stormrelay.io/v1` |
-| PostgreSQL | 16+; demo uses 17 |
-| NATS | JetStream-capable 2.10+; demo uses 2.11 |
-| Go | 1.26.x |
-
-## Security
-
-Do not report vulnerabilities in public issues. Follow [SECURITY.md](SECURITY.md). The current local authentication mode is explicitly a development bootstrap mode; OIDC and full tenant-aware RBAC enforcement are Milestone 3 work and are not claimed as implemented.
-
-## License
-
-Apache License 2.0. See [LICENSE](LICENSE).
+StormRelay has not claimed a `v0.1.0` release yet. The repository tracks completed and remaining work in `ROADMAP.md` and records unreleased changes in `CHANGELOG.md`.
