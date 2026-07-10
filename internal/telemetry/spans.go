@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -13,6 +14,8 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
+
+const maxSpanAttributeBytes = 256
 
 func StartHTTPServerSpan(ctx context.Context, headers http.Header, method string) (context.Context, trace.Span) {
 	ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(headers))
@@ -103,9 +106,9 @@ func StartEventConsumerSpan(ctx context.Context, traceParent, eventID, eventType
 		"stormrelay.event.process",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
-			attribute.String("messaging.message.id", eventID),
-			attribute.String("event.type", eventType),
-			attribute.String("event.source", source),
+			attribute.String("messaging.message.id", boundedSpanAttribute(eventID)),
+			attribute.String("event.type", boundedSpanAttribute(eventType)),
+			attribute.String("event.source", boundedSpanAttribute(source)),
 		),
 	)
 }
@@ -116,4 +119,16 @@ func RecordSpanError(span trace.Span, err error) {
 	}
 	span.RecordError(err)
 	span.SetStatus(codes.Error, "operation failed")
+}
+
+func boundedSpanAttribute(value string) string {
+	value = strings.ToValidUTF8(value, "\uFFFD")
+	if len(value) <= maxSpanAttributeBytes {
+		return value
+	}
+	value = value[:maxSpanAttributeBytes]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
 }
