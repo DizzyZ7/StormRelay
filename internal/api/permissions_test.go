@@ -26,6 +26,7 @@ func TestRequiredPermission(t *testing.T) {
 		{http.MethodPost, "/api/v1/approvals/id/approve", auth.PermissionApprovalsDecide},
 		{http.MethodPost, "/api/v1/plugins", auth.PermissionIntegrationsWrite},
 		{http.MethodGet, "/api/v1/service-accounts", auth.PermissionServiceAccounts},
+		{http.MethodGet, "/api/v1/unmapped-future-route", permissionDeny},
 	}
 	for _, test := range tests {
 		req := httptest.NewRequest(test.method, test.path, nil)
