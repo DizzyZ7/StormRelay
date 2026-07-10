@@ -1,0 +1,59 @@
+name: Plugin Conformance
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: plugin-conformance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
+        with:
+          persist-credentials: false
+      - name: Build SDK plugin and conformance runner
+        run: |
+          docker build -f examples/plugins/echo-python-sdk/Dockerfile -t stormrelay-echo-sdk .
+          docker build -f deploy/plugin-conformance/Dockerfile -t stormrelay-plugin-conformance .
+      - name: Run live conformance
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create stormrelay-plugin-conformance
+          trap 'docker rm -f echo-plugin >/dev/null 2>&1 || true; docker network rm stormrelay-plugin-conformance >/dev/null 2>&1 || true' EXIT
+          docker run -d --name echo-plugin --network stormrelay-plugin-conformance stormrelay-echo-sdk
+          for attempt in $(seq 1 30); do
+            if docker run --rm --network stormrelay-plugin-conformance stormrelay-plugin-conformance \
+              --endpoint http://echo-plugin:8090 \
+              --action echo \
+              --input '{"conformance":true}' >conformance.json 2>conformance.err; then
+              break
+            fi
+            sleep 1
+          done
+          test -s conformance.json
+          python3 - <<'PY'
+          import json
+          with open('conformance.json', encoding='utf-8') as stream:
+              report = json.load(stream)
+          assert report['plugin_id'] == 'echo-python-sdk'
+          assert report['protocol_version'] == 'stormrelay.plugin/v1'
+          assert report['action'] == 'echo'
+          assert report['status'] == 'succeeded'
+          assert report['output']['echo']['conformance'] is True
+          PY
+      - name: Upload conformance diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: plugin-conformance-diagnostics
+          path: |
+            conformance.json
+            conformance.err
+          if-no-files-found: warn
+          retention-days: 1
