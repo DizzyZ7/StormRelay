@@ -23,6 +23,32 @@ curl -sS --fail-with-body http://localhost:8081/readyz
 AUTH='Authorization: Bearer local-development-only-change-me'
 curl -sS --fail-with-body -H "$AUTH" http://localhost:8080/api/v1/version
 
+# Prometheus must load the checked StormRelay rules, and Grafana must provision the datasource/dashboard.
+for i in $(seq 1 60); do
+  if curl -fsS http://localhost:9090/-/ready >/dev/null && curl -fsS http://localhost:3000/api/health >/dev/null; then break; fi
+  sleep 2
+done
+curl -sS --fail-with-body http://localhost:9090/-/ready >/dev/null
+curl -sS --fail-with-body http://localhost:3000/api/health | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["database"] == "ok"'
+
+RULES=''
+for i in $(seq 1 30); do
+  RULES=$(curl -sS --fail-with-body http://localhost:9090/api/v1/rules)
+  if printf '%s' "$RULES" | python3 -c 'import json,sys; d=json.load(sys.stdin); names={r.get("name") for g in d["data"]["groups"] for r in g.get("rules",[])}; raise SystemExit(0 if {"StormRelayTargetDown","StormRelayEventPipelineStalled","StormRelayDatabasePoolSaturated"} <= names else 1)'; then break; fi
+  sleep 1
+done
+printf '%s' "$RULES" | python3 -c 'import json,sys; d=json.load(sys.stdin); names={r.get("name") for g in d["data"]["groups"] for r in g.get("rules",[])}; assert {"StormRelayTargetDown","StormRelayEventPipelineStalled","StormRelayDatabasePoolSaturated"} <= names'
+
+DASHBOARD=''
+for i in $(seq 1 30); do
+  if DASHBOARD=$(curl -fsS --user admin:admin http://localhost:3000/api/dashboards/uid/stormrelay-operations); then break; fi
+  sleep 1
+done
+printf '%s' "$DASHBOARD" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["dashboard"]["uid"] == "stormrelay-operations" and d["dashboard"]["title"] == "StormRelay Operations" and len(d["dashboard"]["panels"]) >= 8'
+curl -sS --fail-with-body --user admin:admin http://localhost:3000/api/datasources/uid/stormrelay-prometheus | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["uid"] == "stormrelay-prometheus" and d["url"] == "http://prometheus:9090"'
+
 # Register and exercise the side-effect-free process plugin over the versioned protocol.
 PLUGIN=$(curl -sS --fail-with-body -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"key":"echo","endpoint":"http://echo-plugin:8090","auth_mode":"none","timeout_seconds":10}' \

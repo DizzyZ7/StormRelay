@@ -11,7 +11,7 @@ Required environment variables:
 
 The server binds `:8080`; the worker health server binds `:8081`. Override with `STORMRELAY_HTTP_ADDRESS` and `STORMRELAY_WORKER_HTTP_ADDRESS`.
 
-Milestone 2 settings:
+Runbook and plugin settings:
 
 - `STORMRELAY_RUNBOOK_CONCURRENCY`: bounded concurrent leased steps.
 - `STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS`: comma-separated exact host allowlist for HTTP steps.
@@ -27,9 +27,31 @@ An empty allowlist denies every outbound runbook or plugin destination.
 
 Logs are structured JSON. Request and trace IDs are included. Do not enable reverse-proxy body logging on webhook paths. Authorization, signatures, source credentials, acknowledgement tokens, raw payloads, Telegram token, and secret URLs must not be forwarded to log attributes.
 
-## Metrics
+## Metrics, dashboards, and alerts
 
-Server and worker expose Prometheus text at `/metrics`. Current metrics include ingress, rejection, duplicates, event-processing latency totals, open incidents, notification failures, runbook failures and duration totals, JetStream lag, and database pool gauges. Avoid adding source ID, incident ID, tenant ID, URL, or arbitrary labels as metric labels; they create unbounded cardinality.
+Server and worker expose Prometheus text at `/metrics`. Current metrics include ingress, rejection, duplicates, event-processing latency totals, open incidents, notification failures, runbook failures and duration totals, JetStream lag, and database pool gauges.
+
+Avoid adding source ID, incident ID, tenant ID, URL, or arbitrary labels as metric labels; they create unbounded cardinality.
+
+The development Compose stack automatically provisions:
+
+- Prometheus at `http://localhost:9090`;
+- Grafana at `http://localhost:3000`;
+- the `StormRelay Prometheus` datasource;
+- the `StormRelay Operations` dashboard in the `StormRelay` folder;
+- availability, pipeline, capacity, and integration-failure alert rules.
+
+The Compose Grafana credentials are `admin` / `admin` and are development-only. Replace credentials and configure the intended authentication mechanism before exposing Grafana outside localhost or a trusted development network.
+
+The dashboard covers target availability, open incidents, event rates, processing latency, JetStream lag, PostgreSQL pool utilization, runbook duration, and operational failure rates. Provisioned dashboards are immutable in the UI; edit the version-controlled JSON instead.
+
+Alert thresholds are conservative development defaults. Establish a workload baseline before tuning backlog, pool-utilization, rejection-ratio, or open-incident thresholds. Do not increase a threshold merely to silence a real capacity or reliability problem.
+
+Every rule links to a dedicated procedure in `docs/alert-runbooks.md`. Prometheus validates the rule expressions in CI, and the Compose smoke test verifies that Prometheus loads the rules and Grafana loads the datasource and dashboard.
+
+## Distributed tracing
+
+Optional OTLP/gRPC tracing connects inbound HTTP requests to persisted events and worker consumer spans. See `docs/observability.md` for collector configuration, sampling, propagation, shutdown behavior, and the trace data policy.
 
 ## Backup and restore
 

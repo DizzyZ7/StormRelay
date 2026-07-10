@@ -36,9 +36,13 @@ Implemented foundation:
 - parent-based ratio sampling, bounded batching, and graceful shutdown flush;
 - request/trace-correlated structured logs;
 - real in-process OTLP receiver and propagation tests;
-- existing Prometheus metrics retained unchanged.
+- existing Prometheus metrics retained unchanged;
+- provisioned Prometheus alert rules for availability, pipeline, capacity, and integration failures;
+- provisioned Grafana operations dashboard and datasource;
+- alert-specific diagnosis, mitigation, and closure runbooks;
+- static `promtool`/Compose/dashboard validation and live provisioning smoke tests.
 
-Remaining: dashboards, broader application spans, complete failure injection, benchmark harness, backup/restore drill, and upgrade tests.
+Remaining: broader application spans, complete failure injection, benchmark harness, backup/restore drill, and upgrade tests.
 
 ## Milestone 5 — Kubernetes and release
 

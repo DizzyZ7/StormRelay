@@ -1,0 +1,42 @@
+name: Observability Config
+on:
+  pull_request:
+    paths:
+      - "deploy/compose/**"
+      - ".github/workflows/observability-config.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/compose/**"
+      - ".github/workflows/observability-config.yml"
+permissions:
+  contents: read
+concurrency:
+  group: observability-config-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
+        with:
+          persist-credentials: false
+      - name: Validate Docker Compose model
+        run: docker compose -f deploy/compose/docker-compose.yml config --quiet
+      - name: Validate Prometheus configuration and rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            -v "$PWD/deploy/compose:/etc/prometheus:ro" \
+            prom/prometheus:v3.4.1 \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            -v "$PWD/deploy/compose:/etc/prometheus:ro" \
+            prom/prometheus:v3.4.1 \
+            check rules /etc/prometheus/alerts.yml
+      - name: Validate Grafana dashboard JSON
+        run: python3 -m json.tool deploy/compose/grafana/dashboards/stormrelay-operations.json >/dev/null

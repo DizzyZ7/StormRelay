@@ -4,7 +4,7 @@ StormRelay is a self-hosted event-correlation and incident-response control plan
 
 It accepts authenticated webhooks, preserves the original payload, normalizes events into a CloudEvents-compatible model, deduplicates concurrent deliveries, correlates events into incidents, evaluates explainable policies, notifies responders, runs durable response automation, and records an append-only audit trail.
 
-> **Current status:** Milestones 0–3 are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API SDKs, process-plugin SDKs, and a live conformance runner. Milestone 4 starts with the OpenTelemetry tracing foundation on the current branch. The web UI, Kubernetes packaging, backup/restore automation, and release automation remain later work.
+> **Current status:** Milestones 0–3 are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API SDKs, process-plugin SDKs, and a live conformance runner. Milestone 4 includes OpenTelemetry tracing, provisioned Prometheus alerts, Grafana operations dashboards, and alert-specific runbooks. The web UI, Kubernetes packaging, backup/restore automation, and release automation remain later work.
 
 ## Why not only Alertmanager or a webhook router?
 
@@ -22,6 +22,14 @@ curl -fsS http://localhost:8080/readyz | jq
 ```
 
 The development API key is `local-development-only-change-me`. It is intentionally limited to the local Compose file and must never be reused outside the demo.
+
+The Compose stack also exposes:
+
+- Prometheus at `http://localhost:9090` with StormRelay alert rules loaded;
+- Grafana at `http://localhost:3000` with the `StormRelay Operations` dashboard pre-provisioned;
+- development-only Grafana credentials `admin` / `admin`.
+
+Replace the Grafana credentials and authentication configuration before exposing it outside a trusted development network.
 
 Create a generic HMAC source:
 
@@ -114,7 +122,7 @@ Supported Go and Python process-plugin server SDKs implement `stormrelay.plugin/
 - Protected API routes are fail-closed: new route families require an explicit permission mapping.
 - Trace spans exclude authorization headers, credentials, raw request/event payloads, notification bodies, and unbounded labels.
 
-See `SECURITY.md`, `docs/threat-model.md`, `docs/identity.md`, and `docs/observability.md` for details.
+See `SECURITY.md`, `docs/threat-model.md`, `docs/identity.md`, `docs/observability.md`, and `docs/alert-runbooks.md` for details.
 
 ## Development
 
@@ -125,7 +133,7 @@ make build
 make compose-smoke
 ```
 
-Integration tests require PostgreSQL and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, Plugin Conformance, and CodeQL.
+Integration tests require PostgreSQL and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, Plugin Conformance, Observability Config validation, and CodeQL.
 
 ## Project status and releases
 
