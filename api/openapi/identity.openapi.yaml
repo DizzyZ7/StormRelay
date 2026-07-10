@@ -1,0 +1,169 @@
+openapi: 3.1.0
+info:
+  title: StormRelay Identity API
+  version: 0.1.0-dev
+  description: Milestone 3 service-account and role contract; served under the main /api/v1 API.
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/auth/roles:
+    get:
+      operationId: listRoles
+      responses:
+        '200':
+          description: Supported role identifiers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/Role'}
+  /api/v1/service-accounts:
+    get:
+      operationId: listServiceAccounts
+      responses:
+        '200':
+          description: Tenant-scoped service accounts
+    post:
+      operationId: createServiceAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, roles]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 200}
+                roles:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items: {$ref: '#/components/schemas/Role'}
+      responses:
+        '201':
+          description: Service account created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ServiceAccount'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/service-accounts/{accountId}:
+    get:
+      operationId: getServiceAccount
+      parameters: [{$ref: '#/components/parameters/AccountId'}]
+      responses:
+        '200': {description: Service account, content: {application/json: {schema: {$ref: '#/components/schemas/ServiceAccount'}}}}
+        '404': {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateServiceAccount
+      parameters: [{$ref: '#/components/parameters/AccountId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, enabled, roles, version]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 200}
+                enabled: {type: boolean}
+                roles: {type: array, minItems: 1, uniqueItems: true, items: {$ref: '#/components/schemas/Role'}}
+                version: {type: integer, minimum: 1}
+      responses:
+        '200': {description: Service account updated, content: {application/json: {schema: {$ref: '#/components/schemas/ServiceAccount'}}}}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/service-accounts/{accountId}/keys:
+    get:
+      operationId: listServiceAccountKeys
+      parameters: [{$ref: '#/components/parameters/AccountId'}]
+      responses:
+        '200': {description: Key metadata; credentials are never returned}
+    post:
+      operationId: createServiceAccountKey
+      parameters: [{$ref: '#/components/parameters/AccountId'}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expires_at: {type: [string, 'null'], format: date-time}
+      responses:
+        '201':
+          description: Key created; credential is returned once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [key, credential]
+                properties:
+                  key: {$ref: '#/components/schemas/ServiceAccountKey'}
+                  credential: {type: string, writeOnly: true}
+  /api/v1/service-account-keys/{keyId}/revoke:
+    post:
+      operationId: revokeServiceAccountKey
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: Key revoked, content: {application/json: {schema: {$ref: '#/components/schemas/ServiceAccountKey'}}}}
+        '404': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+  parameters:
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    Error:
+      description: Consistent error envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                required: [code, message, request_id]
+                properties:
+                  code: {type: string}
+                  message: {type: string}
+                  request_id: {type: string}
+                  details: {}
+  schemas:
+    Role:
+      type: string
+      enum: [viewer, operator, responder, runbook-editor, integration-admin, tenant-admin]
+    ServiceAccount:
+      type: object
+      required: [id, tenant_id, name, enabled, roles, version]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        name: {type: string}
+        enabled: {type: boolean}
+        roles: {type: array, items: {$ref: '#/components/schemas/Role'}}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        version: {type: integer}
+    ServiceAccountKey:
+      type: object
+      required: [id, service_account_id, key_prefix, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        service_account_id: {type: string, format: uuid}
+        key_prefix: {type: string, minLength: 16, maxLength: 16}
+        expires_at: {type: [string, 'null'], format: date-time}
+        revoked_at: {type: [string, 'null'], format: date-time}
+        last_used_at: {type: [string, 'null'], format: date-time}
+        created_at: {type: string, format: date-time}

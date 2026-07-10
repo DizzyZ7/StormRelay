@@ -26,7 +26,11 @@ jobs:
           git diff --exit-code -- go.mod go.sum
           go mod verify
       - name: Format check
-        run: test -z "$(gofmt -l .)"
+        shell: bash
+        run: |
+          set -o pipefail
+          gofmt -w .
+          git diff --exit-code -- '*.go' | tee gofmt.patch
       - name: Vet
         shell: bash
         run: |
@@ -52,6 +56,7 @@ jobs:
         with:
           name: unit-diagnostics
           path: |
+            gofmt.patch
             vet.log
             unit.log
             build.log

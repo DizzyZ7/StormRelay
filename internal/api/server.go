@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/DizzyZ7/StormRelay/internal/auth"
 	"github.com/DizzyZ7/StormRelay/internal/config"
 	"github.com/DizzyZ7/StormRelay/internal/id"
 	"github.com/DizzyZ7/StormRelay/internal/ingestion"
@@ -46,7 +47,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/ack/{token}", s.ackByToken)
 	mux.HandleFunc("POST /api/v1/ack/{token}", s.ackByToken)
 	mux.HandleFunc("POST /api/v1/webhooks/{sourceID}", s.ingestWebhook)
-	mux.Handle("/api/v1/", s.requireAdmin(http.HandlerFunc(s.apiRoutes)))
+	mux.Handle("/api/v1/", s.requireAuth(http.HandlerFunc(s.apiRoutes)))
 	return s.middleware(mux)
 }
 
@@ -54,6 +55,16 @@ func (s *Server) apiRoutes(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/version":
 		s.version(w, r)
+	case r.URL.Path == "/api/v1/auth/roles" && r.Method == http.MethodGet:
+		s.listRoles(w, r)
+	case r.URL.Path == "/api/v1/service-accounts" && r.Method == http.MethodGet:
+		s.listServiceAccounts(w, r)
+	case r.URL.Path == "/api/v1/service-accounts" && r.Method == http.MethodPost:
+		s.createServiceAccount(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/service-accounts/"):
+		s.serviceAccountRoute(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/service-account-keys/"):
+		s.serviceAccountKeyRoute(w, r)
 	case r.URL.Path == "/api/v1/sources" && r.Method == http.MethodGet:
 		s.listSources(w, r)
 	case r.URL.Path == "/api/v1/sources" && r.Method == http.MethodPost:
@@ -143,15 +154,42 @@ type requestPrincipal struct {
 }
 type requestPrincipalKey struct{}
 
-func (s *Server) requireAdmin(next http.Handler) http.Handler {
+func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		value := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		hash := sha256.Sum256([]byte(value))
-		if subtle.ConstantTimeCompare(hash[:], s.bootstrapHash[:]) != 1 {
+		header := strings.TrimSpace(r.Header.Get("Authorization"))
+		if !strings.HasPrefix(header, "Bearer ") {
 			writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid API key required", nil)
 			return
 		}
-		principal := requestPrincipal{TenantID: s.cfg.DefaultTenantID, ActorType: "api-key", ActorID: "bootstrap-admin"}
+		credential := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+		if credential == "" {
+			writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid API key required", nil)
+			return
+		}
+		hash := sha256.Sum256([]byte(credential))
+		var identity auth.Principal
+		if subtle.ConstantTimeCompare(hash[:], s.bootstrapHash[:]) == 1 {
+			identity = auth.Principal{TenantID: s.cfg.DefaultTenantID, ActorType: "bootstrap", ActorID: "bootstrap-admin", Roles: []auth.Role{auth.RoleTenantAdmin}}
+		} else {
+			var err error
+			identity, err = s.store.AuthenticateServiceAccountKey(r.Context(), credential)
+			if err != nil {
+				if !storage.IsNoRows(err) {
+					s.logger.Error("service account authentication failed", "request_id", telemetry.RequestID(r.Context()), "error", err)
+					writeError(w, r, http.StatusServiceUnavailable, "authentication_unavailable", "authentication service unavailable", nil)
+					return
+				}
+				writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid API key required", nil)
+				return
+			}
+		}
+		permission := requiredPermission(r)
+		if !identity.Allowed(permission) {
+			_ = s.store.RecordAudit(r.Context(), storage.AuditInput{TenantID: identity.TenantID, ActorType: identity.ActorType, ActorID: identity.ActorID, Action: "authorization.denied", ResourceType: "http_route", ResourceID: safePath(r.URL.Path), RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()), Metadata: map[string]any{"method": r.Method, "permission": permission}})
+			writeError(w, r, http.StatusForbidden, "forbidden", "permission denied", map[string]any{"required_permission": permission})
+			return
+		}
+		principal := requestPrincipal{TenantID: identity.TenantID, ActorType: identity.ActorType, ActorID: identity.ActorID}
 		ctx := context.WithValue(r.Context(), requestPrincipalKey{}, principal)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

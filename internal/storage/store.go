@@ -18,7 +18,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-const ExpectedMigrationVersion int64 = 5
+const ExpectedMigrationVersion int64 = 6
 
 type Store struct {
 	pool   *pgxpool.Pool
