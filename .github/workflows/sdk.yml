@@ -1,0 +1,24 @@
+name: SDK
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: sdk-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
+        with:
+          persist-credentials: false
+      - name: Compile Python SDK
+        run: python3 -m compileall -q sdk/python/stormrelay sdk/python/tests
+      - name: Python SDK tests
+        env:
+          PYTHONPATH: sdk/python
+        run: python3 -m unittest discover -s sdk/python/tests -v
