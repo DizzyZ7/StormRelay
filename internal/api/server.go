@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/id"
 	"github.com/DizzyZ7/StormRelay/internal/ingestion"
 	"github.com/DizzyZ7/StormRelay/internal/messaging"
+	"github.com/DizzyZ7/StormRelay/internal/oidcauth"
 	pluginprotocol "github.com/DizzyZ7/StormRelay/internal/plugins"
 	"github.com/DizzyZ7/StormRelay/internal/storage"
 	"github.com/DizzyZ7/StormRelay/internal/telemetry"
@@ -28,6 +30,7 @@ type Server struct {
 	store         *storage.Store
 	bus           *messaging.Bus
 	pluginClient  *pluginprotocol.Client
+	oidcAuth      *oidcauth.Service
 	metrics       *telemetry.Metrics
 	logger        *slog.Logger
 	bootstrapHash [32]byte
@@ -37,8 +40,16 @@ type Server struct {
 }
 
 func New(cfg config.Config, store *storage.Store, bus *messaging.Bus, metrics *telemetry.Metrics, logger *slog.Logger) *Server {
-	return &Server{cfg: cfg, store: store, bus: bus, pluginClient: pluginprotocol.NewClient(cfg.PluginAllowedHosts), metrics: metrics, logger: logger, bootstrapHash: sha256.Sum256([]byte(cfg.BootstrapAPIKey)), limiters: map[string]*ingestion.Limiter{}, replay: ingestion.NewReplayCache(100000)}
+	return &Server{
+		cfg: cfg, store: store, bus: bus,
+		pluginClient: pluginprotocol.NewClient(cfg.PluginAllowedHosts),
+		oidcAuth:     oidcauth.NewService(store),
+		metrics:      metrics, logger: logger,
+		bootstrapHash: sha256.Sum256([]byte(cfg.BootstrapAPIKey)),
+		limiters:      map[string]*ingestion.Limiter{}, replay: ingestion.NewReplayCache(100000),
+	}
 }
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -65,6 +76,14 @@ func (s *Server) apiRoutes(w http.ResponseWriter, r *http.Request) {
 		s.serviceAccountRoute(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/v1/service-account-keys/"):
 		s.serviceAccountKeyRoute(w, r)
+	case r.URL.Path == "/api/v1/oidc/providers" && r.Method == http.MethodGet:
+		s.listOIDCProviders(w, r)
+	case r.URL.Path == "/api/v1/oidc/providers" && r.Method == http.MethodPost:
+		s.createOIDCProvider(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/oidc/providers/"):
+		s.oidcProviderRoute(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/oidc/identities/"):
+		s.oidcIdentityRoute(w, r)
 	case r.URL.Path == "/api/v1/sources" && r.Method == http.MethodGet:
 		s.listSources(w, r)
 	case r.URL.Path == "/api/v1/sources" && r.Method == http.MethodPost:
@@ -158,12 +177,12 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := strings.TrimSpace(r.Header.Get("Authorization"))
 		if !strings.HasPrefix(header, "Bearer ") {
-			writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid API key required", nil)
+			writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid bearer credential required", nil)
 			return
 		}
 		credential := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
 		if credential == "" {
-			writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid API key required", nil)
+			writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid bearer credential required", nil)
 			return
 		}
 		hash := sha256.Sum256([]byte(credential))
@@ -173,19 +192,28 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		} else {
 			var err error
 			identity, err = s.store.AuthenticateServiceAccountKey(r.Context(), credential)
+			if storage.IsNoRows(err) {
+				identity, err = s.oidcAuth.Authenticate(r.Context(), credential)
+			}
 			if err != nil {
-				if !storage.IsNoRows(err) {
-					s.logger.Error("service account authentication failed", "request_id", telemetry.RequestID(r.Context()), "error", err)
+				switch {
+				case storage.IsNoRows(err), errors.Is(err, oidcauth.ErrInvalidCredential):
+					writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid bearer credential required", nil)
+				default:
+					s.logger.Error("authentication failed", "request_id", telemetry.RequestID(r.Context()), "error", err)
 					writeError(w, r, http.StatusServiceUnavailable, "authentication_unavailable", "authentication service unavailable", nil)
-					return
 				}
-				writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid API key required", nil)
 				return
 			}
 		}
 		permission := requiredPermission(r)
 		if !identity.Allowed(permission) {
-			_ = s.store.RecordAudit(r.Context(), storage.AuditInput{TenantID: identity.TenantID, ActorType: identity.ActorType, ActorID: identity.ActorID, Action: "authorization.denied", ResourceType: "http_route", ResourceID: safePath(r.URL.Path), RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()), Metadata: map[string]any{"method": r.Method, "permission": permission}})
+			_ = s.store.RecordAudit(r.Context(), storage.AuditInput{
+				TenantID: identity.TenantID, ActorType: identity.ActorType, ActorID: identity.ActorID,
+				Action: "authorization.denied", ResourceType: "http_route", ResourceID: safePath(r.URL.Path),
+				RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()),
+				Metadata: map[string]any{"method": r.Method, "permission": permission},
+			})
 			writeError(w, r, http.StatusForbidden, "forbidden", "permission denied", map[string]any{"required_permission": permission})
 			return
 		}
