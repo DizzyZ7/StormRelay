@@ -56,12 +56,7 @@ jobs:
         with:
           name: unit-diagnostics
           path: |
-            go.mod
-            go.sum
             gofmt.patch
-            api/openapi/openapi.yaml
-            internal/oidcauth/service_test.go
-            internal/storage/oidc.go
             vet.log
             unit.log
             build.log
