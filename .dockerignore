@@ -1,0 +1,6 @@
+.git
+.github
+*.md
+web/node_modules
+coverage.out
+bin
