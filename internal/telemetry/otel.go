@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"strings"
 	"sync"
@@ -37,8 +38,8 @@ func SetupTracing(ctx context.Context, cfg TracingConfig, logger *slog.Logger) (
 	if strings.TrimSpace(cfg.ServiceName) == "" {
 		return nil, fmt.Errorf("telemetry service name is required")
 	}
-	if cfg.SampleRatio < 0 || cfg.SampleRatio > 1 {
-		return nil, fmt.Errorf("trace sample ratio must be between 0 and 1")
+	if math.IsNaN(cfg.SampleRatio) || math.IsInf(cfg.SampleRatio, 0) || cfg.SampleRatio < 0 || cfg.SampleRatio > 1 {
+		return nil, fmt.Errorf("trace sample ratio must be a finite number between 0 and 1")
 	}
 	if cfg.ExportTimeout <= 0 || cfg.ExportTimeout > time.Minute {
 		return nil, fmt.Errorf("trace export timeout must be greater than zero and at most one minute")
