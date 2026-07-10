@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"strings"
@@ -152,14 +153,27 @@ func (s *Store) FindOIDCProvider(ctx context.Context, issuer string, audiences [
 	if len(audiences) == 0 {
 		return OIDCProvider{}, errNoRows
 	}
-	provider, err := scanOIDCProvider(s.pool.QueryRow(ctx, `
+	rows, err := s.pool.Query(ctx, `
 		SELECT id,tenant_id,name,issuer,audience,jwks_uri,supported_signing_algs,enabled,created_at,updated_at,version
 		FROM oidc_providers
-		WHERE issuer=$1 AND audience=ANY($2::text[]) AND enabled=true`, issuer, audiences))
-	if err == pgx.ErrNoRows {
+		WHERE issuer=$1 AND audience=ANY($2::text[]) AND enabled=true
+		ORDER BY array_position($2::text[], audience)
+		LIMIT 2`, issuer, audiences)
+	if err != nil {
+		return OIDCProvider{}, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
 		return OIDCProvider{}, errNoRows
 	}
-	return provider, err
+	provider, err := scanOIDCProvider(rows)
+	if err != nil {
+		return OIDCProvider{}, err
+	}
+	if rows.Next() {
+		return OIDCProvider{}, errNoRows
+	}
+	return provider, rows.Err()
 }
 
 func (s *Store) UpdateOIDCProvider(ctx context.Context, in UpdateOIDCProviderInput) (OIDCProvider, error) {
@@ -467,6 +481,6 @@ func hostOnly(raw string) string {
 }
 
 func hashBytes(value []byte) []byte {
-	hash, _ := hashJSON(string(value))
-	return hash
+	hash := sha256.Sum256(value)
+	return hash[:]
 }
