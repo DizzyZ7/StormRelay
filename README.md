@@ -4,7 +4,7 @@ StormRelay is a self-hosted event-correlation and incident-response control plan
 
 It accepts authenticated webhooks, preserves the original payload, normalizes events into a CloudEvents-compatible model, deduplicates concurrent deliveries, correlates events into incidents, evaluates explainable policies, notifies responders, runs durable response automation, and records an append-only audit trail.
 
-> **Current status:** Milestones 0–2 and the first Milestone 3 identity/developer-platform slice are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, and supported Go/Python SDKs. The current branch adds guarded OIDC federation with explicit subject mappings. The web UI, full OpenTelemetry exporters, Kubernetes packaging, and release automation remain later milestones.
+> **Current status:** Milestones 0–3 are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API SDKs, process-plugin SDKs, and a live conformance runner. Milestone 4 starts with the OpenTelemetry tracing foundation on the current branch. The web UI, Kubernetes packaging, backup/restore automation, and release automation remain later work.
 
 ## Why not only Alertmanager or a webhook router?
 
@@ -61,7 +61,7 @@ curl -fsS \
 
 ## Configuration
 
-All server and worker settings use the `STORMRELAY_` prefix. See `.env.example` and `docs/operations.md` for the complete development configuration.
+All server and worker settings use the `STORMRELAY_` prefix, except the standard OpenTelemetry endpoint variables. See `.env.example`, `docs/operations.md`, and `docs/observability.md` for the complete development and operations configuration.
 
 Important security settings include:
 
@@ -69,6 +69,12 @@ Important security settings include:
 - `STORMRELAY_BOOTSTRAP_API_KEY`: initial tenant-admin key; replace it outside local development.
 - `STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS`: exact hosts available to runbook HTTP steps.
 - `STORMRELAY_PLUGIN_ALLOWED_HOSTS`: exact hosts available to process plugins.
+
+Optional tracing settings include:
+
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: OTLP/gRPC collector URL; leave empty to disable export.
+- `STORMRELAY_OTEL_TRACE_SAMPLE_RATIO`: parent-based root sampling ratio from `0` to `1`, default `0.10`.
+- `STORMRELAY_OTEL_EXPORT_TIMEOUT`: bounded export timeout, default `10s`.
 
 OIDC providers are registered through the tenant-admin API rather than environment variables. Registration performs guarded discovery and stores the exact issuer, API audience, JWKS URI, and allowed asymmetric signing algorithms. See `docs/identity.md`.
 
@@ -94,7 +100,9 @@ The CLI stores its configuration with mode `0600` in the operating system user c
 
 ## SDKs
 
-Supported Go and Python clients live under `sdk/`. Both use bearer authentication, bounded response parsing, and typed API errors. The Python client has no external runtime dependencies. OIDC access tokens may be supplied through the same API-key constructor/header field because StormRelay uses one bearer credential surface.
+Supported Go and Python API clients live under `sdk/`. Both use bearer authentication, bounded response parsing, and typed API errors. The Python client has no external runtime dependencies. OIDC access tokens may be supplied through the same bearer credential surface.
+
+Supported Go and Python process-plugin server SDKs implement `stormrelay.plugin/v1`, including strict request validation, deadlines, bounded responses, safe errors, and idempotency-key echo. See `docs/plugin-sdk.md` and `plugins/COMPATIBILITY.md`.
 
 ## Security boundaries
 
@@ -104,8 +112,9 @@ Supported Go and Python clients live under `sdk/`. Both use bearer authenticatio
 - OIDC email claims are not used for account linking; provider subjects require explicit tenant-admin mappings.
 - The server never logs service-account credentials, OIDC tokens, webhook secrets, or raw authorization headers.
 - Protected API routes are fail-closed: new route families require an explicit permission mapping.
+- Trace spans exclude authorization headers, credentials, raw request/event payloads, notification bodies, and unbounded labels.
 
-See `SECURITY.md`, `docs/threat-model.md`, and `docs/identity.md` for details.
+See `SECURITY.md`, `docs/threat-model.md`, `docs/identity.md`, and `docs/observability.md` for details.
 
 ## Development
 
@@ -116,7 +125,7 @@ make build
 make compose-smoke
 ```
 
-Integration tests require PostgreSQL and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, and CodeQL.
+Integration tests require PostgreSQL and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, Plugin Conformance, and CodeQL.
 
 ## Project status and releases
 
