@@ -1,3 +1,5 @@
 # Runbook examples
 
-Runbook execution is not implemented in Milestone 1, so this directory intentionally contains no misleading executable examples. The versioned DSL and examples will land with Milestone 2.
+`approval-demo.yaml` is a runnable Milestone 2 example. It demonstrates a persisted wait followed by manual approval. Apply it through the API or CLI, start an execution, approve the pending request, and inspect the immutable step snapshots and audit trail.
+
+Runbooks are versioned and use the `stormrelay.io/v1` DSL documented in `docs/runbook-dsl.md`. Inline credentials, arbitrary expressions, and generic shell commands are rejected.
