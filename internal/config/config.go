@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -34,12 +35,27 @@ type Config struct {
 	AllowUnauthenticatedSources bool
 	RunbookHTTPAllowedHosts     []string
 	PluginAllowedHosts          []string
+	OTLPTraceEndpoint           string
+	OTelTraceSampleRatio        float64
+	OTelTraceExportTimeout      time.Duration
 }
 
 func Load(serviceName, version string) (Config, error) {
 	master, err := decodeMasterKey(os.Getenv("STORMRELAY_MASTER_KEY"))
 	if err != nil {
 		return Config{}, err
+	}
+	traceSampleRatio, err := envFloatStrict("STORMRELAY_OTEL_TRACE_SAMPLE_RATIO", 0.10)
+	if err != nil {
+		return Config{}, err
+	}
+	traceExportTimeout, err := envDurationStrict("STORMRELAY_OTEL_EXPORT_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	traceEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"))
+	if traceEndpoint == "" {
+		traceEndpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	}
 	cfg := Config{
 		ServiceName:                 serviceName,
@@ -66,6 +82,9 @@ func Load(serviceName, version string) (Config, error) {
 		AllowUnauthenticatedSources: envBool("STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES", false),
 		RunbookHTTPAllowedHosts:     envCSV("STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS"),
 		PluginAllowedHosts:          envCSV("STORMRELAY_PLUGIN_ALLOWED_HOSTS"),
+		OTLPTraceEndpoint:           traceEndpoint,
+		OTelTraceSampleRatio:        traceSampleRatio,
+		OTelTraceExportTimeout:      traceExportTimeout,
 	}
 	if cfg.BootstrapAPIKey == "" {
 		return Config{}, fmt.Errorf("STORMRELAY_BOOTSTRAP_API_KEY is required")
@@ -75,6 +94,12 @@ func Load(serviceName, version string) (Config, error) {
 	}
 	if cfg.RunbookConcurrency < 1 || cfg.RunbookConcurrency > 64 {
 		return Config{}, fmt.Errorf("runbook concurrency must be between 1 and 64")
+	}
+	if cfg.OTelTraceSampleRatio < 0 || cfg.OTelTraceSampleRatio > 1 {
+		return Config{}, fmt.Errorf("STORMRELAY_OTEL_TRACE_SAMPLE_RATIO must be between 0 and 1")
+	}
+	if cfg.OTelTraceExportTimeout <= 0 || cfg.OTelTraceExportTimeout > time.Minute {
+		return Config{}, fmt.Errorf("STORMRELAY_OTEL_EXPORT_TIMEOUT must be greater than zero and at most one minute")
 	}
 	return cfg, nil
 }
@@ -106,6 +131,20 @@ func envInt(name string, fallback int) int {
 	}
 	return n
 }
+func envFloatStrict(name string, fallback float64) (float64, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number: %w", name, err)
+	}
+	if math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return 0, fmt.Errorf("%s must be a finite number", name)
+	}
+	return parsed, nil
+}
 func envBool(name string, fallback bool) bool {
 	v := strings.TrimSpace(os.Getenv(name))
 	if v == "" {
@@ -127,6 +166,17 @@ func envDuration(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+func envDurationStrict(name string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a Go duration: %w", name, err)
+	}
+	return parsed, nil
 }
 func envCSV(name string) []string {
 	value := strings.TrimSpace(os.Getenv(name))

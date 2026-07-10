@@ -56,7 +56,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				continue
 			}
-			w.logger.Error("fetch events failed", "error", err)
+			telemetry.Log(ctx, w.logger, slog.LevelError, "fetch events failed", "error", err)
 			time.Sleep(time.Second)
 			continue
 		}
@@ -72,12 +72,18 @@ func (w *Worker) handleMessage(ctx context.Context, msg *nats.Msg) {
 	started := time.Now()
 	var event events.Event
 	if err := json.Unmarshal(msg.Data, &event); err != nil {
-		w.failMessage(msg, fmt.Errorf("decode event: %w", err))
+		w.failMessage(ctx, msg, fmt.Errorf("decode event: %w", err))
 		return
 	}
-	result, err := w.store.ProcessEvent(ctx, event, storage.ProcessOptions{DedupeWindow: w.cfg.DedupeWindow, CorrelationWindow: w.cfg.CorrelationWindow, ActorID: "stormrelay-worker", PublicBaseURL: w.cfg.PublicBaseURL})
+	messageCtx, span := telemetry.StartEventConsumerSpan(ctx, event.TraceParent, event.ID, event.Type, event.Source)
+	if event.RequestID != "" {
+		messageCtx = telemetry.WithRequestID(messageCtx, event.RequestID)
+	}
+	defer span.End()
+	result, err := w.store.ProcessEvent(messageCtx, event, storage.ProcessOptions{DedupeWindow: w.cfg.DedupeWindow, CorrelationWindow: w.cfg.CorrelationWindow, ActorID: "stormrelay-worker", PublicBaseURL: w.cfg.PublicBaseURL})
 	if err != nil {
-		w.failMessage(msg, err)
+		telemetry.RecordSpanError(span, err)
+		w.failMessage(messageCtx, msg, err)
 		return
 	}
 	if result.Duplicate {
@@ -87,12 +93,13 @@ func (w *Worker) handleMessage(ctx context.Context, msg *nats.Msg) {
 	}
 	w.metrics.ObserveEventLatency(time.Since(started))
 	if err := msg.AckSync(); err != nil {
-		w.logger.Warn("event processed but acknowledgement failed", "event_id", event.ID, "error", err)
+		telemetry.RecordSpanError(span, err)
+		telemetry.Log(messageCtx, w.logger, slog.LevelWarn, "event processed but acknowledgement failed", "event_id", event.ID, "error", err)
 		return
 	}
-	w.logger.Info("event processed", "event_id", event.ID, "normalized_event_id", result.EventID, "incident_id", result.Incident.ID, "duplicate", result.Duplicate, "duration_ms", time.Since(started).Milliseconds())
+	telemetry.Log(messageCtx, w.logger, slog.LevelInfo, "event processed", "event_id", event.ID, "normalized_event_id", result.EventID, "incident_id", result.Incident.ID, "duplicate", result.Duplicate, "duration_ms", time.Since(started).Milliseconds())
 }
-func (w *Worker) failMessage(msg *nats.Msg, err error) {
+func (w *Worker) failMessage(ctx context.Context, msg *nats.Msg, err error) {
 	metadata, metaErr := msg.Metadata()
 	deliveries := uint64(1)
 	if metaErr == nil {
@@ -100,17 +107,17 @@ func (w *Worker) failMessage(msg *nats.Msg, err error) {
 	}
 	if deliveries >= 5 {
 		if dlqErr := w.bus.PublishDLQ(msg, err.Error()); dlqErr != nil {
-			w.logger.Error("publish DLQ failed", "error", dlqErr)
+			telemetry.Log(ctx, w.logger, slog.LevelError, "publish DLQ failed", "error", dlqErr)
 			_ = msg.NakWithDelay(30 * time.Second)
 			return
 		}
 		_ = msg.Ack()
-		w.logger.Error("poison event moved to DLQ", "deliveries", deliveries, "error", sanitize(err.Error()))
+		telemetry.Log(ctx, w.logger, slog.LevelError, "poison event moved to DLQ", "deliveries", deliveries, "error", sanitize(err.Error()))
 		return
 	}
 	delay := time.Duration(1<<min(int(deliveries), 6)) * time.Second
 	_ = msg.NakWithDelay(delay)
-	w.logger.Warn("event processing failed; scheduled retry", "deliveries", deliveries, "retry_in", delay.String(), "error", sanitize(err.Error()))
+	telemetry.Log(ctx, w.logger, slog.LevelWarn, "event processing failed; scheduled retry", "deliveries", deliveries, "retry_in", delay.String(), "error", sanitize(err.Error()))
 }
 
 func (w *Worker) deliveryLoop(ctx context.Context) {
@@ -123,17 +130,17 @@ func (w *Worker) deliveryLoop(ctx context.Context) {
 		case <-ticker.C:
 			deliveries, err := w.store.ClaimDeliveries(ctx, 20)
 			if err != nil {
-				w.logger.Error("claim deliveries failed", "error", err)
+				telemetry.Log(ctx, w.logger, slog.LevelError, "claim deliveries failed", "error", err)
 				continue
 			}
 			for _, delivery := range deliveries {
 				ref, deliverErr := w.notifier.Deliver(ctx, delivery)
 				if err := w.store.CompleteDelivery(ctx, delivery.ID, ref, deliverErr); err != nil {
-					w.logger.Error("update delivery failed", "delivery_id", delivery.ID, "error", err)
+					telemetry.Log(ctx, w.logger, slog.LevelError, "update delivery failed", "delivery_id", delivery.ID, "error", err)
 				}
 				if deliverErr != nil {
 					w.metrics.NotificationFailures.Add(1)
-					w.logger.Warn("notification delivery failed", "delivery_id", delivery.ID, "kind", delivery.Kind, "error", sanitize(deliverErr.Error()))
+					telemetry.Log(ctx, w.logger, slog.LevelWarn, "notification delivery failed", "delivery_id", delivery.ID, "kind", delivery.Kind, "error", sanitize(deliverErr.Error()))
 				}
 			}
 		}

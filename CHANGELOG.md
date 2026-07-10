@@ -14,7 +14,10 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - SSRF-guarded HTTP steps and a versioned out-of-process plugin protocol with manifest discovery, bounded responses, deadlines, and idempotency-key verification.
 - Tenant-scoped service accounts with one-time 256-bit API keys, revocation, expiry, optimistic updates, and stable audit JSONL.
 - Fail-closed backend RBAC with explicit route permissions and authorization-denial audit.
-- Supported Go and Python clients with typed errors, bounded responses, and dedicated SDK tests.
+- Supported Go and Python API clients with typed errors, bounded responses, and dedicated SDK tests.
 - Guarded OIDC federation with exact issuer/audience trust, public-only discovery and JWKS access, signed-token verification, explicit subject mappings, and provider/identity disable controls.
+- Supported Go and Python process-plugin server SDKs, a production-client conformance runner, cross-language Docker compatibility testing, and protocol compatibility guidance.
+- Optional OpenTelemetry tracing with OTLP/gRPC export, W3C HTTP-to-event-to-worker propagation, parent-based sampling, bounded batching, graceful shutdown flush, and trace-correlated structured logs.
+- Real HTTP propagation, JetStream consumer propagation, configuration-boundary, and in-process OTLP receiver tests.
 
 No v0.1.0 release has been claimed yet.

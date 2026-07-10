@@ -14,18 +14,31 @@ Implemented: immutable versioned definitions, PostgreSQL execution snapshots and
 
 ## Milestone 3 — developer platform and identity
 
-Implemented slices:
+Implemented:
 
 - supported Go and Python API clients;
 - tenant-scoped service accounts and one-time hashed API keys;
 - backend-enforced, fail-closed RBAC and authorization audit;
-- guarded OIDC issuer/JWKS trust, signed bearer-token verification, and explicit provider-subject mappings.
+- guarded OIDC issuer/JWKS trust, signed bearer-token verification, and explicit provider-subject mappings;
+- supported Go and Python process-plugin server SDKs;
+- production-client conformance runner, cross-language Docker compatibility gate, SDK example, and protocol compatibility policy.
 
-Remaining Milestone 3 work: broader plugin developer tooling and optional interactive browser-session flows. StormRelay's API does not require browser sessions; direct OIDC bearer tokens are supported by the current federation slice.
+Interactive browser-session flows remain optional future product work. StormRelay's API does not require browser sessions; direct OIDC bearer tokens are supported.
 
 ## Milestone 4 — production operations
 
-Not implemented. OpenTelemetry SDK/exporters, dashboards, complete failure injection, benchmark harness, backup/restore drill, and upgrade tests.
+In progress.
+
+Implemented foundation:
+
+- optional OpenTelemetry trace provider and OTLP/gRPC exporter;
+- W3C HTTP-to-event-to-worker trace propagation;
+- parent-based ratio sampling, bounded batching, and graceful shutdown flush;
+- request/trace-correlated structured logs;
+- real in-process OTLP receiver and propagation tests;
+- existing Prometheus metrics retained unchanged.
+
+Remaining: dashboards, broader application spans, complete failure injection, benchmark harness, backup/restore drill, and upgrade tests.
 
 ## Milestone 5 — Kubernetes and release
 
