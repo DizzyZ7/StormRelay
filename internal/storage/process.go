@@ -9,7 +9,6 @@ import (
 
 	"github.com/DizzyZ7/StormRelay/internal/events"
 	"github.com/DizzyZ7/StormRelay/internal/id"
-	"github.com/DizzyZ7/StormRelay/internal/incidents"
 	"github.com/DizzyZ7/StormRelay/internal/policies"
 	"github.com/jackc/pgx/v5"
 )
