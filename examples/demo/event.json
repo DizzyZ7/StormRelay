@@ -1,0 +1,12 @@
+{
+  "type": "latency.alert",
+  "subject": "Checkout database latency",
+  "severity": "critical",
+  "labels": {
+    "service": "checkout",
+    "environment": "production",
+    "resource": "db-primary",
+    "alertname": "HighLatency"
+  },
+  "observed_ms": 934
+}

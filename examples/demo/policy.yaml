@@ -1,0 +1,15 @@
+apiVersion: stormrelay.io/v1
+kind: Policy
+metadata:
+  id: critical-production
+  version: 1
+spec:
+  match:
+    all:
+      - field: severity
+        equals: critical
+      - field: environment
+        in: [production]
+  actions:
+    notificationChannels: [local-mock]
+    requireApproval: true
