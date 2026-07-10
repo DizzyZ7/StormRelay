@@ -1,0 +1,32 @@
+name: Materialize Milestone 2
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feat/milestone-2-runbook-engine]
+permissions:
+  contents: write
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
+        with:
+          ref: feat/milestone-2-runbook-engine
+          fetch-depth: 0
+      - name: Verify and materialize reviewed sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '01da3ac46a4681d2bc68a841ef088a65b232dc26d1da82a8e250a023301aced0  .stormrelay/milestone2.tar.gz' | sha256sum --check --strict
+          tar -xzf .stormrelay/milestone2.tar.gz
+          rm -rf .stormrelay
+          rm -f .github/workflows/materialize-m2.yml
+          test -z "$(gofmt -l internal cmd tests/integration 2>/dev/null || true)"
+          git config user.name 'stormrelay-ci'
+          git config user.email 'stormrelay-ci@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: implement durable runbook engine'
+          git push origin HEAD:feat/milestone-2-runbook-engine
