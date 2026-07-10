@@ -7,6 +7,8 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/auth"
 )
 
+const permissionDeny auth.Permission = "__deny__"
+
 func requiredPermission(r *http.Request) auth.Permission {
 	path := r.URL.Path
 	method := r.Method
@@ -58,6 +60,6 @@ func requiredPermission(r *http.Request) auth.Permission {
 	case path == "/api/v1/plugins" || strings.HasPrefix(path, "/api/v1/plugins/"):
 		return auth.PermissionIntegrationsWrite
 	default:
-		return auth.PermissionVersionRead
+		return permissionDeny
 	}
 }
