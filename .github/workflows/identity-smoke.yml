@@ -1,0 +1,31 @@
+name: Identity Smoke
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: identity-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
+        with:
+          persist-credentials: false
+      - name: Run identity smoke test
+        shell: bash
+        run: |
+          set -o pipefail
+          ./tests/smoke-identity.sh 2>&1 | tee identity-smoke.log
+      - name: Upload identity diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: identity-smoke-diagnostics
+          path: identity-smoke.log
+          if-no-files-found: warn
+          retention-days: 1
