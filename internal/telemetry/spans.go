@@ -52,6 +52,7 @@ func HTTPMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 		ctx, span := StartHTTPServerSpan(r.Context(), r.Header, r.Method)
 		ctx = WithTraceID(ctx, TraceID(ctx))
 		r = r.WithContext(ctx)
+		InjectHTTPTrace(ctx, r.Header)
 		InjectHTTPTrace(ctx, w.Header())
 		recorder := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		defer func() {
