@@ -11,6 +11,14 @@ Required environment variables:
 
 The server binds `:8080`; the worker health server binds `:8081`. Override with `STORMRELAY_HTTP_ADDRESS` and `STORMRELAY_WORKER_HTTP_ADDRESS`.
 
+Milestone 2 settings:
+
+- `STORMRELAY_RUNBOOK_CONCURRENCY`: bounded concurrent leased steps.
+- `STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS`: comma-separated exact host allowlist for HTTP steps.
+- `STORMRELAY_PLUGIN_ALLOWED_HOSTS`: comma-separated exact host allowlist for process-plugin discovery and actions.
+
+An empty allowlist denies every outbound runbook or plugin destination.
+
 ## Health and readiness
 
 `/healthz` proves the process can serve HTTP. `/readyz` verifies PostgreSQL, JetStream, and the expected migration version. Remove an instance from traffic when readiness is non-200.
@@ -21,7 +29,7 @@ Logs are structured JSON. Request and trace IDs are included. Do not enable reve
 
 ## Metrics
 
-Server and worker expose Prometheus text at `/metrics`. Current metrics include ingress, rejection, duplicates, processing latency totals, open incidents, notification failures, JetStream lag, and database pool gauges. Avoid adding source ID, incident ID, tenant ID, URL, or arbitrary labels as metric labels; they create unbounded cardinality.
+Server and worker expose Prometheus text at `/metrics`. Current metrics include ingress, rejection, duplicates, event-processing latency totals, open incidents, notification failures, runbook failures and duration totals, JetStream lag, and database pool gauges. Avoid adding source ID, incident ID, tenant ID, URL, or arbitrary labels as metric labels; they create unbounded cardinality.
 
 ## Backup and restore
 
@@ -51,3 +59,7 @@ After five failed deliveries, the worker publishes the original event to `<subje
 ## Notification ambiguity
 
 A provider call can succeed remotely and fail locally before the result is saved. StormRelay records `ambiguous` when a delivery lease expires for an external provider. Operators should verify the provider before retrying. This is a deliberate rejection of fictional exactly-once notification semantics.
+
+## Runbook recovery and ambiguous outcomes
+
+Execution steps use expiring PostgreSQL leases. Persisted waits and approvals survive worker restarts. An expired plugin or explicitly idempotent HTTP attempt can be retried with the same idempotency key when attempts remain. An uncertain non-idempotent HTTP result becomes `ambiguous`; verify the remote system, then retry the exact step explicitly with `force=true` only when operationally justified. Pause/resume does not clear ambiguity.

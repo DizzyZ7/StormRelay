@@ -4,7 +4,7 @@ StormRelay is a self-hosted event-correlation and incident-response control plan
 
 It accepts authenticated webhooks, preserves the original payload, normalizes events into a CloudEvents-compatible model, deduplicates concurrent deliveries, correlates events into incidents, evaluates explainable policies, notifies responders, and records an append-only audit trail.
 
-> **Current status:** Milestone 0 and the Milestone 1 vertical slice are implemented. Generic JSON and structured CloudEvents HTTP ingestion are supported. Runbook execution, plugin runtime, OIDC, the web UI, OpenTelemetry SDK wiring, and Kubernetes packaging remain intentionally deferred to later milestones; they are not represented by empty services or fake endpoints.
+> **Current status:** Milestones 0 and 1 are released on `main`; Milestone 2 is under review. The current branch adds durable versioned runbooks, persisted wait/approval state, retries, crash recovery, explicit rollback, and the process-based plugin protocol. OIDC, the web UI, full OpenTelemetry exporters, SDKs, Kubernetes packaging, and release automation remain later milestones.
 
 ## Why not only Alertmanager or a webhook router?
 
@@ -147,6 +147,11 @@ go build -o stormrelay ./cmd/stormrelay-cli
 ./stormrelay policies validate examples/demo/policy.yaml
 ./stormrelay policies apply examples/demo/policy.yaml
 ./stormrelay audit export --output audit.jsonl
+./stormrelay runbooks apply examples/runbooks/approval-demo.yaml
+./stormrelay runbooks run approval-demo
+./stormrelay approvals list
+./stormrelay plugins register --key echo --endpoint http://echo-plugin:8090
+./stormrelay plugins test echo --action echo --input '{"hello":"world"}'
 ```
 
 The CLI stores its configuration with mode `0600` in the operating system user configuration directory.

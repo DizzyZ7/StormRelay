@@ -11,6 +11,8 @@ StormRelay is an incident control plane between unreliable event producers and h
 - **Worker:** bounded pull consumer. It commits raw event, normalized event, deduplication result, incident correlation, policy decisions, notification outbox, and audit before acknowledging the message.
 - **PostgreSQL:** source of truth. SQL remains explicit through pgx.
 - **Notification dispatcher:** claims leased outbox rows with `FOR UPDATE SKIP LOCKED` and calls isolated adapters.
+- **Runbook engine:** claims immutable execution-step snapshots with expiring PostgreSQL leases. Persisted waits and approvals do not occupy goroutines; uncertain non-idempotent outcomes become `ambiguous`.
+- **Process plugins:** run outside the control-plane address space behind a versioned JSON protocol, exact host allowlists, DNS/IP validation, deadlines, bounded payloads, and idempotency-key verification.
 - **API/CLI:** operational control surface. UI work is deferred and may never become a required dependency.
 
 ## Event processing sequence
@@ -71,7 +73,7 @@ All transitions pass through domain validation and create both an `incident_tran
 
 ## Data model summary
 
-Identity tables define tenants, users, teams, memberships, and API keys. Event tables separate raw bytes, normalized fields, and duplicate observations. Incident tables link canonical events and transitions. Policy and runbook definitions are immutable versions behind mutable active-version pointers. Execution-step rows already reserve lease, input-snapshot, retry, timeout, and idempotency fields for Milestone 2, but no runbook executor is claimed in Milestone 1. Notifications use durable delivery attempts. Audit entries cannot be updated or deleted through the application role because a database trigger rejects mutation.
+Identity tables define tenants, users, teams, memberships, and API keys. Event tables separate raw bytes, normalized fields, and duplicate observations. Incident tables link canonical events and transitions. Policy and runbook definitions are immutable versions behind mutable active-version pointers. Executions pin a concrete runbook version and store immutable per-step snapshots, retry policy, timeout, lease state, output, sanitized error, and idempotency key. Notifications use durable delivery attempts. Audit entries cannot be updated or deleted through the application role because a database trigger rejects mutation.
 
 ## Consistency model
 
@@ -85,4 +87,4 @@ The gateway receives backpressure from JetStream publish failures. The worker li
 
 ## Deferred boundaries
 
-Runbook execution, process plugins, OIDC, web UI, OpenTelemetry SDK exporters, Helm, signing, and release provenance are separate milestones. Their schemas or documents may exist to preserve compatibility planning, but no endpoint advertises them as operational.
+OIDC, tenant-aware RBAC, web UI, OpenTelemetry SDK exporters, Helm, signing, and release provenance remain separate milestones. Generic shell execution is intentionally unavailable.
