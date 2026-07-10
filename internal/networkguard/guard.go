@@ -111,8 +111,13 @@ func (g *Guard) Client(ctx context.Context, rawURL string, timeout time.Duration
 	return client, resolved.URL, nil
 }
 
+var carrierGradeNAT = &net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)}
+
 func prohibitedIP(ip net.IP) bool {
-	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() {
+	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsPrivate() {
+		return true
+	}
+	if carrierGradeNAT.Contains(ip) {
 		return true
 	}
 	if ip.Equal(net.ParseIP("169.254.169.254")) || ip.Equal(net.ParseIP("fd00:ec2::254")) {
