@@ -19,6 +19,8 @@ func requiredPermission(r *http.Request) auth.Permission {
 		return auth.PermissionVersionRead
 	case path == "/api/v1/service-accounts" || strings.HasPrefix(path, "/api/v1/service-accounts/") || strings.HasPrefix(path, "/api/v1/service-account-keys/"):
 		return auth.PermissionServiceAccounts
+	case path == "/api/v1/oidc/providers" || strings.HasPrefix(path, "/api/v1/oidc/providers/") || strings.HasPrefix(path, "/api/v1/oidc/identities/"):
+		return auth.PermissionIdentityManage
 	case path == "/api/v1/sources" && method == http.MethodGet:
 		return auth.PermissionIntegrationsRead
 	case path == "/api/v1/sources" || strings.HasPrefix(path, "/api/v1/sources/"):
