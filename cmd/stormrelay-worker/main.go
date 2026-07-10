@@ -36,12 +36,29 @@ func run() error {
 	}
 	logger := telemetry.NewLogger(cfg.ServiceName, cfg.Version)
 	slog.SetDefault(logger)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	tracing, err := telemetry.SetupTracing(ctx, telemetry.TracingConfig{
+		ServiceName:   cfg.ServiceName,
+		Version:       cfg.Version,
+		Endpoint:      cfg.OTLPTraceEndpoint,
+		SampleRatio:   cfg.OTelTraceSampleRatio,
+		ExportTimeout: cfg.OTelTraceExportTimeout,
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if shutdownErr := tracing.Shutdown(shutdownCtx); shutdownErr != nil {
+			logger.Error("flush traces failed", "error", shutdownErr)
+		}
+	}()
 	box, err := cryptox.NewBox(cfg.MasterKey)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 	store, err := storage.Open(ctx, cfg.DatabaseURL, box, logger)
 	if err != nil {
 		return err
@@ -96,10 +113,11 @@ func run() error {
 		rw.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		metrics.WritePrometheus(rw)
 	})
-	healthServer := &http.Server{Addr: cfg.WorkerHTTPAddress, Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	healthHandler := telemetry.HTTPMiddleware(mux, logger)
+	healthServer := &http.Server{Addr: cfg.WorkerHTTPAddress, Handler: healthHandler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	healthErr := make(chan error, 1)
 	go func() {
-		logger.Info("worker health server listening", "address", cfg.WorkerHTTPAddress)
+		logger.Info("worker health server listening", "address", cfg.WorkerHTTPAddress, "otlp_traces_enabled", cfg.OTLPTraceEndpoint != "")
 		healthErr <- healthServer.ListenAndServe()
 	}()
 	componentErr := make(chan error, 2)
