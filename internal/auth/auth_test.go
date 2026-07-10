@@ -4,9 +4,9 @@ import "testing"
 
 func TestRolePermissions(t *testing.T) {
 	tests := []struct {
-		role Role
+		role       Role
 		permission Permission
-		allowed bool
+		allowed    bool
 	}{
 		{RoleViewer, PermissionIncidentsRead, true},
 		{RoleViewer, PermissionIncidentsWrite, false},
