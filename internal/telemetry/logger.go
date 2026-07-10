@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 type contextKey string
@@ -24,7 +26,14 @@ func RequestID(ctx context.Context) string { v, _ := ctx.Value(requestIDKey).(st
 func WithTraceID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, traceIDKey, id)
 }
-func TraceID(ctx context.Context) string { v, _ := ctx.Value(traceIDKey).(string); return v }
+func TraceID(ctx context.Context) string {
+	spanContext := trace.SpanContextFromContext(ctx)
+	if spanContext.IsValid() {
+		return spanContext.TraceID().String()
+	}
+	v, _ := ctx.Value(traceIDKey).(string)
+	return v
+}
 func Log(ctx context.Context, l *slog.Logger, level slog.Level, msg string, args ...any) {
 	attrs := []any{"request_id", RequestID(ctx), "trace_id", TraceID(ctx)}
 	attrs = append(attrs, args...)
