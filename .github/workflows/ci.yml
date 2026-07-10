@@ -56,8 +56,6 @@ jobs:
         with:
           name: unit-diagnostics
           path: |
-            go.mod
-            go.sum
             gofmt.patch
             vet.log
             unit.log
