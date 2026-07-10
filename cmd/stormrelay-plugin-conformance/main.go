@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -58,14 +59,9 @@ func run(args []string) error {
 	if *timeout <= 0 || *timeout > 2*time.Minute {
 		return errors.New("--timeout must be greater than zero and at most two minutes")
 	}
-	var input any
-	decoder := json.NewDecoder(strings.NewReader(*inputText))
-	decoder.UseNumber()
-	if err := decoder.Decode(&input); err != nil {
-		return fmt.Errorf("decode --input: %w", err)
-	}
-	if decoder.More() {
-		return errors.New("--input must contain one JSON value")
+	input, err := decodeInput(*inputText)
+	if err != nil {
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -116,4 +112,21 @@ func run(args []string) error {
 	}
 	fmt.Println(string(encoded))
 	return nil
+}
+
+func decodeInput(value string) (any, error) {
+	var input any
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.UseNumber()
+	if err := decoder.Decode(&input); err != nil {
+		return nil, fmt.Errorf("decode --input: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("--input must contain one JSON value")
+		}
+		return nil, fmt.Errorf("decode trailing --input: %w", err)
+	}
+	return input, nil
 }
