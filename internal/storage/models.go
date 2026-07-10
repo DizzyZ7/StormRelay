@@ -95,8 +95,17 @@ type Delivery struct {
 	Attempt                                              int
 }
 type AuditEntry struct {
-	ID, TenantID, ActorType, ActorID, Action, ResourceType, ResourceID, RequestID, TraceID string
-	BeforeHash, AfterHash                                                                  []byte
-	Metadata                                                                               json.RawMessage
-	CreatedAt                                                                              time.Time
+	ID           string          `json:"id"`
+	TenantID     string          `json:"tenant_id"`
+	ActorType    string          `json:"actor_type"`
+	ActorID      string          `json:"actor_id"`
+	Action       string          `json:"action"`
+	ResourceType string          `json:"resource_type"`
+	ResourceID   string          `json:"resource_id"`
+	RequestID    string          `json:"request_id,omitempty"`
+	TraceID      string          `json:"trace_id,omitempty"`
+	BeforeHash   []byte          `json:"before_hash,omitempty"`
+	AfterHash    []byte          `json:"after_hash,omitempty"`
+	Metadata     json.RawMessage `json:"metadata"`
+	CreatedAt    time.Time       `json:"created_at"`
 }
