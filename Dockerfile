@@ -4,7 +4,7 @@ ARG TARGET=stormrelay-server
 ARG VERSION=dev
 WORKDIR /src
 RUN apk add --no-cache ca-certificates git
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -buildvcs=true -ldflags="-s -w -X main.version=${VERSION}" -o /out/stormrelay ./cmd/${TARGET}
