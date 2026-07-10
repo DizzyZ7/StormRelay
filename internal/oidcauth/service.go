@@ -108,9 +108,9 @@ func Discover(ctx context.Context, issuer string) (Discovery, error) {
 	if _, err := networkguard.NewPublic([]string{parsedJWKS.Hostname()}).Resolve(ctx, document.JWKSURI); err != nil {
 		return Discovery{}, fmt.Errorf("guard jwks_uri: %w", err)
 	}
-	algs := safeSigningAlgs(document.SupportedSigningAlgs)
-	if len(algs) == 0 {
-		algs = []string{oidc.RS256}
+	algs, err := discoverySigningAlgs(document.SupportedSigningAlgs)
+	if err != nil {
+		return Discovery{}, err
 	}
 	return Discovery{Issuer: issuer, JWKSURI: document.JWKSURI, SupportedSigningAlgs: algs}, nil
 }
@@ -249,6 +249,17 @@ func parseAudiences(raw json.RawMessage) ([]string, error) {
 		out = append(out, value)
 	}
 	return out, nil
+}
+
+func discoverySigningAlgs(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return []string{oidc.RS256}, nil
+	}
+	algs := safeSigningAlgs(values)
+	if len(algs) == 0 {
+		return nil, fmt.Errorf("discovery document declares no supported asymmetric signing algorithm")
+	}
+	return algs, nil
 }
 
 func safeSigningAlgs(values []string) []string {
