@@ -72,7 +72,7 @@ func run() error {
 	}
 	defer bus.Close()
 	metrics := &telemetry.Metrics{}
-	handler := api.New(cfg, store, bus, metrics, logger).Handler()
+	handler := telemetry.HTTPMiddleware(api.New(cfg, store, bus, metrics, logger).Handler(), nil)
 	server := &http.Server{Addr: cfg.HTTPAddress, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	errCh := make(chan error, 1)
 	go func() { logger.Info("server listening", "address", cfg.HTTPAddress, "otlp_traces_enabled", cfg.OTLPTraceEndpoint != ""); errCh <- server.ListenAndServe() }()
