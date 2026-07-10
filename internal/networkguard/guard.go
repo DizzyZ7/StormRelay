@@ -12,8 +12,9 @@ import (
 )
 
 type Guard struct {
-	allowed  map[string]struct{}
-	resolver *net.Resolver
+	allowed    map[string]struct{}
+	resolver   *net.Resolver
+	publicOnly bool
 }
 
 type Resolved struct {
@@ -23,6 +24,17 @@ type Resolved struct {
 }
 
 func New(allowedHosts []string) *Guard {
+	return newGuard(allowedHosts, false)
+}
+
+// NewPublic creates a guard for internet trust endpoints such as OIDC
+// discovery and JWKS. Unlike New, it rejects private and carrier-grade NAT
+// destinations even when the hostname is explicitly allowlisted.
+func NewPublic(allowedHosts []string) *Guard {
+	return newGuard(allowedHosts, true)
+}
+
+func newGuard(allowedHosts []string, publicOnly bool) *Guard {
 	allowed := make(map[string]struct{}, len(allowedHosts))
 	for _, host := range allowedHosts {
 		host = strings.ToLower(strings.TrimSpace(host))
@@ -30,7 +42,7 @@ func New(allowedHosts []string) *Guard {
 			allowed[host] = struct{}{}
 		}
 	}
-	return &Guard{allowed: allowed, resolver: net.DefaultResolver}
+	return &Guard{allowed: allowed, resolver: net.DefaultResolver, publicOnly: publicOnly}
 }
 
 func (g *Guard) Resolve(ctx context.Context, rawURL string) (Resolved, error) {
@@ -53,7 +65,7 @@ func (g *Guard) Resolve(ctx context.Context, rawURL string) (Resolved, error) {
 		return Resolved{}, fmt.Errorf("resolve outbound host %q: %w", host, err)
 	}
 	for _, ip := range ips {
-		if prohibitedIP(ip) {
+		if prohibitedIP(ip, g.publicOnly) {
 			return Resolved{}, fmt.Errorf("outbound host %q resolved to prohibited address %s", host, ip)
 		}
 	}
@@ -111,15 +123,21 @@ func (g *Guard) Client(ctx context.Context, rawURL string, timeout time.Duration
 	return client, resolved.URL, nil
 }
 
-func prohibitedIP(ip net.IP) bool {
+var carrierGradeNAT = &net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)}
+
+func prohibitedIP(ip net.IP, publicOnly bool) bool {
 	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() {
 		return true
 	}
 	if ip.Equal(net.ParseIP("169.254.169.254")) || ip.Equal(net.ParseIP("fd00:ec2::254")) {
 		return true
 	}
+	if publicOnly && (ip.IsPrivate() || carrierGradeNAT.Contains(ip)) {
+		return true
+	}
 	return false
 }
+
 func minDuration(a, b time.Duration) time.Duration {
 	if a < b {
 		return a

@@ -10,11 +10,18 @@ Implemented: generic and structured CloudEvents webhook ingestion, payload limit
 
 ## Milestone 2 — durable runbook engine
 
-Implemented in the Milestone 2 branch and subject to merge gates: immutable versioned definitions, PostgreSQL execution snapshots and leases, HTTP/wait/approval/process-plugin steps, bounded retries and timeouts, persisted timers, crash recovery, pause/resume/cancel, dry-run, explicit operator retry for ambiguous outcomes, and reverse-order rollback.
+Implemented: immutable versioned definitions, PostgreSQL execution snapshots and leases, HTTP/wait/approval/process-plugin steps, bounded retries and timeouts, persisted timers, crash recovery, pause/resume/cancel, dry-run, explicit operator retry for ambiguous outcomes, and reverse-order rollback.
 
 ## Milestone 3 — developer platform and identity
 
-Not implemented. Go/Python SDKs, OIDC, tenant-aware RBAC, service accounts, and broader plugin developer tooling remain separate work after Milestone 2 is merged.
+Implemented slices:
+
+- supported Go and Python API clients;
+- tenant-scoped service accounts and one-time hashed API keys;
+- backend-enforced, fail-closed RBAC and authorization audit;
+- guarded OIDC issuer/JWKS trust, signed bearer-token verification, and explicit provider-subject mappings.
+
+Remaining Milestone 3 work: broader plugin developer tooling and optional interactive browser-session flows. StormRelay's API does not require browser sessions; direct OIDC bearer tokens are supported by the current federation slice.
 
 ## Milestone 4 — production operations
 

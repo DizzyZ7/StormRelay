@@ -10,11 +10,15 @@ func TestRolePermissions(t *testing.T) {
 	}{
 		{RoleViewer, PermissionIncidentsRead, true},
 		{RoleViewer, PermissionIncidentsWrite, false},
+		{RoleViewer, PermissionIdentityManage, false},
 		{RoleResponder, PermissionApprovalsDecide, true},
+		{RoleResponder, PermissionIdentityManage, false},
 		{RoleRunbookEditor, PermissionRunbooksWrite, true},
 		{RoleRunbookEditor, PermissionIntegrationsWrite, false},
 		{RoleIntegrationAdmin, PermissionIntegrationsWrite, true},
+		{RoleIntegrationAdmin, PermissionIdentityManage, false},
 		{RoleTenantAdmin, PermissionServiceAccounts, true},
+		{RoleTenantAdmin, PermissionIdentityManage, true},
 	}
 	for _, tt := range tests {
 		principal := Principal{Roles: []Role{tt.role}}

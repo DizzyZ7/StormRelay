@@ -26,6 +26,7 @@ const (
 	PermissionIntegrationsWrite Permission = "integrations:write"
 	PermissionAuditRead         Permission = "audit:read"
 	PermissionServiceAccounts   Permission = "service_accounts:manage"
+	PermissionIdentityManage    Permission = "identity:manage"
 )
 
 type Role string
@@ -45,7 +46,7 @@ var grants = map[Role]map[Permission]struct{}{
 	RoleResponder:        permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionRunbooksRun, PermissionExecutionsRead, PermissionExecutionsControl, PermissionApprovalsRead, PermissionApprovalsDecide, PermissionAuditRead, PermissionIntegrationsRead),
 	RoleRunbookEditor:    permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionEventsRead, PermissionPoliciesRead, PermissionPoliciesWrite, PermissionRunbooksRead, PermissionRunbooksWrite, PermissionRunbooksRun, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead),
 	RoleIntegrationAdmin: permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead, PermissionIntegrationsWrite),
-	RoleTenantAdmin:      permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionPoliciesWrite, PermissionRunbooksRead, PermissionRunbooksWrite, PermissionRunbooksRun, PermissionExecutionsRead, PermissionExecutionsControl, PermissionApprovalsRead, PermissionApprovalsDecide, PermissionIntegrationsRead, PermissionIntegrationsWrite, PermissionAuditRead, PermissionServiceAccounts),
+	RoleTenantAdmin:      permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionPoliciesWrite, PermissionRunbooksRead, PermissionRunbooksWrite, PermissionRunbooksRun, PermissionExecutionsRead, PermissionExecutionsControl, PermissionApprovalsRead, PermissionApprovalsDecide, PermissionIntegrationsRead, PermissionIntegrationsWrite, PermissionAuditRead, PermissionServiceAccounts, PermissionIdentityManage),
 }
 
 func permissionSet(values ...Permission) map[Permission]struct{} {
