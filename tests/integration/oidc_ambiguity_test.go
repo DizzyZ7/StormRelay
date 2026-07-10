@@ -23,7 +23,7 @@ func TestOIDCProviderSelectionRejectsAmbiguousAudienceSet(t *testing.T) {
 	} {
 		if _, err := s.CreateOIDCProvider(ctx, storage.CreateOIDCProviderInput{
 			TenantID: tenantID, Name: fmt.Sprintf("multi-provider-%d-%d", suffix, index),
-			Issuer:   issuer, Audience: audience,
+			Issuer: issuer, Audience: audience,
 			JWKSURI:              fmt.Sprintf("https://multi-keys-%d-%d.example.com/jwks", suffix, index),
 			SupportedSigningAlgs: []string{"RS256"}, ActorID: "integration-admin",
 		}); err != nil {
