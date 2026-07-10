@@ -253,6 +253,150 @@ paths:
           content:
             application/x-ndjson:
               schema: {type: string}
+  /api/v1/runbooks:
+    get:
+      operationId: listRunbooks
+      responses:
+        '200': {description: Versioned runbooks}
+    post:
+      operationId: applyRunbook
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema: {type: string}
+      responses:
+        '201': {description: Immutable runbook version created}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/runbooks/validate:
+    post:
+      operationId: validateRunbook
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema: {type: string}
+      responses:
+        '200': {description: Runbook is valid}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/runbooks/{runbookKey}/run:
+    post:
+      operationId: runRunbook
+      parameters:
+        - {name: runbookKey, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                incident_id: {type: string, format: uuid}
+                dry_run: {type: boolean, default: false}
+                parameters: {type: object}
+      responses:
+        '201': {description: Durable execution created}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/executions:
+    get:
+      operationId: listExecutions
+      responses:
+        '200': {description: Executions}
+  /api/v1/executions/{executionId}:
+    get:
+      operationId: getExecution
+      parameters:
+        - {name: executionId, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: Execution and immutable step snapshots}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/executions/{executionId}/{action}:
+    post:
+      operationId: controlExecution
+      parameters:
+        - {name: executionId, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: action, in: path, required: true, schema: {type: string, enum: [pause, resume, cancel, rollback]}}
+      responses:
+        '200': {description: Execution control request accepted}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/executions/{executionId}/steps/{stepId}/retry:
+    post:
+      operationId: retryExecutionStep
+      parameters:
+        - {name: executionId, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: stepId, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force: {type: boolean, default: false}
+      responses:
+        '200': {description: Failed or ambiguous step scheduled for retry}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/approvals:
+    get:
+      operationId: listApprovals
+      parameters:
+        - {name: execution_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: Pending and historical approvals}
+  /api/v1/approvals/{approvalId}/{decision}:
+    post:
+      operationId: decideApproval
+      parameters:
+        - {name: approvalId, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: decision, in: path, required: true, schema: {type: string, enum: [approve, reject]}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, maxLength: 1000}
+      responses:
+        '200': {description: Approval decision persisted}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/plugins:
+    get:
+      operationId: listPlugins
+      responses:
+        '200': {description: Registered process plugins}
+    post:
+      operationId: registerPlugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, endpoint]
+              properties:
+                key: {type: string}
+                endpoint: {type: string, format: uri}
+                bearer_token: {type: string, writeOnly: true}
+      responses:
+        '201': {description: Plugin registration created}
+  /api/v1/plugins/{pluginKey}/test:
+    post:
+      operationId: testPlugin
+      parameters:
+        - {name: pluginKey, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action: {type: string}
+                input: {}
+      responses:
+        '200': {description: Plugin action completed through the versioned protocol}
+        '502': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     bearerAuth:
