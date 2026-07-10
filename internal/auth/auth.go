@@ -40,12 +40,12 @@ const (
 )
 
 var grants = map[Role]map[Permission]struct{}{
-	RoleViewer: permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead),
-	RoleOperator: permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead),
-	RoleResponder: permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionRunbooksRun, PermissionExecutionsRead, PermissionExecutionsControl, PermissionApprovalsRead, PermissionApprovalsDecide, PermissionAuditRead, PermissionIntegrationsRead),
-	RoleRunbookEditor: permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionEventsRead, PermissionPoliciesRead, PermissionPoliciesWrite, PermissionRunbooksRead, PermissionRunbooksWrite, PermissionRunbooksRun, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead),
+	RoleViewer:           permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead),
+	RoleOperator:         permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead),
+	RoleResponder:        permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionRunbooksRun, PermissionExecutionsRead, PermissionExecutionsControl, PermissionApprovalsRead, PermissionApprovalsDecide, PermissionAuditRead, PermissionIntegrationsRead),
+	RoleRunbookEditor:    permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionEventsRead, PermissionPoliciesRead, PermissionPoliciesWrite, PermissionRunbooksRead, PermissionRunbooksWrite, PermissionRunbooksRun, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead),
 	RoleIntegrationAdmin: permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionEventsRead, PermissionPoliciesRead, PermissionRunbooksRead, PermissionExecutionsRead, PermissionAuditRead, PermissionIntegrationsRead, PermissionIntegrationsWrite),
-	RoleTenantAdmin: permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionPoliciesWrite, PermissionRunbooksRead, PermissionRunbooksWrite, PermissionRunbooksRun, PermissionExecutionsRead, PermissionExecutionsControl, PermissionApprovalsRead, PermissionApprovalsDecide, PermissionIntegrationsRead, PermissionIntegrationsWrite, PermissionAuditRead, PermissionServiceAccounts),
+	RoleTenantAdmin:      permissionSet(PermissionVersionRead, PermissionIncidentsRead, PermissionIncidentsWrite, PermissionEventsRead, PermissionPoliciesRead, PermissionPoliciesWrite, PermissionRunbooksRead, PermissionRunbooksWrite, PermissionRunbooksRun, PermissionExecutionsRead, PermissionExecutionsControl, PermissionApprovalsRead, PermissionApprovalsDecide, PermissionIntegrationsRead, PermissionIntegrationsWrite, PermissionAuditRead, PermissionServiceAccounts),
 }
 
 func permissionSet(values ...Permission) map[Permission]struct{} {
@@ -91,11 +91,11 @@ func NormalizeRoles(values []Role) ([]Role, error) {
 }
 
 type Principal struct {
-	TenantID string `json:"tenant_id"`
+	TenantID  string `json:"tenant_id"`
 	ActorType string `json:"actor_type"`
-	ActorID string `json:"actor_id"`
-	Roles []Role `json:"roles"`
-	KeyID string `json:"key_id,omitempty"`
+	ActorID   string `json:"actor_id"`
+	Roles     []Role `json:"roles"`
+	KeyID     string `json:"key_id,omitempty"`
 }
 
 func (p Principal) Allowed(permission Permission) bool {
