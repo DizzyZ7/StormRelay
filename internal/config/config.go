@@ -44,6 +44,14 @@ func Load(serviceName, version string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	traceSampleRatio, err := envFloatStrict("STORMRELAY_OTEL_TRACE_SAMPLE_RATIO", 0.10)
+	if err != nil {
+		return Config{}, err
+	}
+	traceExportTimeout, err := envDurationStrict("STORMRELAY_OTEL_EXPORT_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
 	traceEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"))
 	if traceEndpoint == "" {
 		traceEndpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
@@ -74,8 +82,8 @@ func Load(serviceName, version string) (Config, error) {
 		RunbookHTTPAllowedHosts:     envCSV("STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS"),
 		PluginAllowedHosts:          envCSV("STORMRELAY_PLUGIN_ALLOWED_HOSTS"),
 		OTLPTraceEndpoint:           traceEndpoint,
-		OTelTraceSampleRatio:        envFloat("STORMRELAY_OTEL_TRACE_SAMPLE_RATIO", 0.10),
-		OTelTraceExportTimeout:      envDuration("STORMRELAY_OTEL_EXPORT_TIMEOUT", 10*time.Second),
+		OTelTraceSampleRatio:        traceSampleRatio,
+		OTelTraceExportTimeout:      traceExportTimeout,
 	}
 	if cfg.BootstrapAPIKey == "" {
 		return Config{}, fmt.Errorf("STORMRELAY_BOOTSTRAP_API_KEY is required")
@@ -122,16 +130,16 @@ func envInt(name string, fallback int) int {
 	}
 	return n
 }
-func envFloat(name string, fallback float64) float64 {
-	v := strings.TrimSpace(os.Getenv(name))
-	if v == "" {
-		return fallback
+func envFloatStrict(name string, fallback float64) (float64, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
 	}
-	n, err := strconv.ParseFloat(v, 64)
+	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("%s must be a number: %w", name, err)
 	}
-	return n
+	return parsed, nil
 }
 func envBool(name string, fallback bool) bool {
 	v := strings.TrimSpace(os.Getenv(name))
@@ -154,6 +162,17 @@ func envDuration(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+func envDurationStrict(name string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a Go duration: %w", name, err)
+	}
+	return parsed, nil
 }
 func envCSV(name string) []string {
 	value := strings.TrimSpace(os.Getenv(name))
