@@ -39,12 +39,14 @@ func TestLoadUsesGenericOTLPEndpointFallback(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidOpenTelemetryBounds(t *testing.T) {
+func TestLoadRejectsInvalidOpenTelemetryConfiguration(t *testing.T) {
 	for name, environment := range map[string]map[string]string{
-		"ratio below zero": {"STORMRELAY_OTEL_TRACE_SAMPLE_RATIO": "-0.1"},
-		"ratio above one":  {"STORMRELAY_OTEL_TRACE_SAMPLE_RATIO": "1.1"},
-		"zero timeout":     {"STORMRELAY_OTEL_EXPORT_TIMEOUT": "0s"},
-		"long timeout":     {"STORMRELAY_OTEL_EXPORT_TIMEOUT": "61s"},
+		"ratio below zero":   {"STORMRELAY_OTEL_TRACE_SAMPLE_RATIO": "-0.1"},
+		"ratio above one":    {"STORMRELAY_OTEL_TRACE_SAMPLE_RATIO": "1.1"},
+		"malformed ratio":    {"STORMRELAY_OTEL_TRACE_SAMPLE_RATIO": "abc"},
+		"zero timeout":       {"STORMRELAY_OTEL_EXPORT_TIMEOUT": "0s"},
+		"long timeout":       {"STORMRELAY_OTEL_EXPORT_TIMEOUT": "61s"},
+		"malformed timeout":  {"STORMRELAY_OTEL_EXPORT_TIMEOUT": "not-a-duration"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			setRequiredConfig(t)
