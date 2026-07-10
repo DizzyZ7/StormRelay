@@ -39,14 +39,14 @@ groups:
           runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/alert-runbooks.md#stormrelayjetstreambackloghigh"
 
       - alert: StormRelayDatabasePoolSaturated
-        expr: max by (job) (stormrelay_database_pool_acquired) / clamp_min(max by (job) (stormrelay_database_pool_max), 1) > 0.85
+        expr: stormrelay_database_pool_acquired / clamp_min(stormrelay_database_pool_max, 1) > 0.85
         for: 5m
         labels:
           severity: warning
           service: stormrelay
         annotations:
           summary: "StormRelay database pool is near saturation"
-          description: "More than 85% of the PostgreSQL pool is acquired for {{ $labels.job }}. Current utilization ratio: {{ $value | humanizePercentage }}."
+          description: "More than 85% of the PostgreSQL pool is acquired for {{ $labels.job }} at {{ $labels.instance }}. Current utilization ratio: {{ $value | humanizePercentage }}."
           runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/alert-runbooks.md#stormrelaydatabasepoolsaturated"
 
       - alert: StormRelayOpenIncidentLoadHigh
