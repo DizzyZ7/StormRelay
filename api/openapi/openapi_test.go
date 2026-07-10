@@ -13,8 +13,8 @@ func TestContractContainsImplementedCriticalPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	var document struct {
-		OpenAPI string                    `yaml:"openapi"`
-		Paths   map[string]map[string]any `yaml:"paths"`
+		OpenAPI    string                    `yaml:"openapi"`
+		Paths      map[string]map[string]any `yaml:"paths"`
 		Components struct {
 			Schemas map[string]any `yaml:"schemas"`
 		} `yaml:"components"`
