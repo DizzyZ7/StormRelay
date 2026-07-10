@@ -120,9 +120,9 @@ func validateRequest(request Request, now time.Time) error {
 		return fmt.Errorf("protocol_version must be %q", ProtocolVersion)
 	}
 	for name, value := range map[string]string{
-		"execution_id": request.ExecutionID,
-		"step_id": request.StepID,
-		"request_id": request.RequestID,
+		"execution_id":    request.ExecutionID,
+		"step_id":         request.StepID,
+		"request_id":      request.RequestID,
 		"idempotency_key": request.IdempotencyKey,
 	} {
 		value = strings.TrimSpace(value)
