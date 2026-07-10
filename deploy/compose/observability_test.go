@@ -13,20 +13,20 @@ import (
 var metricPattern = regexp.MustCompile(`stormrelay_[a-z0-9_]+`)
 
 var exportedMetrics = map[string]struct{}{
-	"stormrelay_ingress_events_total":                      {},
-	"stormrelay_rejected_events_total":                     {},
-	"stormrelay_duplicate_events_total":                    {},
-	"stormrelay_runbook_failures_total":                    {},
-	"stormrelay_runbook_duration_seconds_count":             {},
-	"stormrelay_runbook_duration_seconds_sum":               {},
-	"stormrelay_plugin_failures_total":                     {},
-	"stormrelay_notification_delivery_failures_total":       {},
-	"stormrelay_open_incidents":                            {},
-	"stormrelay_database_pool_acquired":                    {},
-	"stormrelay_database_pool_max":                         {},
-	"stormrelay_jetstream_consumer_lag":                    {},
-	"stormrelay_event_processing_latency_seconds_count":     {},
-	"stormrelay_event_processing_latency_seconds_sum":       {},
+	"stormrelay_ingress_events_total":                   {},
+	"stormrelay_rejected_events_total":                  {},
+	"stormrelay_duplicate_events_total":                 {},
+	"stormrelay_runbook_failures_total":                 {},
+	"stormrelay_runbook_duration_seconds_count":         {},
+	"stormrelay_runbook_duration_seconds_sum":           {},
+	"stormrelay_plugin_failures_total":                  {},
+	"stormrelay_notification_delivery_failures_total":   {},
+	"stormrelay_open_incidents":                         {},
+	"stormrelay_database_pool_acquired":                 {},
+	"stormrelay_database_pool_max":                      {},
+	"stormrelay_jetstream_consumer_lag":                 {},
+	"stormrelay_event_processing_latency_seconds_count": {},
+	"stormrelay_event_processing_latency_seconds_sum":   {},
 }
 
 type alertFile struct {
