@@ -109,7 +109,7 @@ func TestAuthenticateRejectsExpiredAndWrongAudience(t *testing.T) {
 	})
 
 	for name, claims := range map[string]map[string]any{
-		"expired": {"iss": provider.Issuer, "aud": provider.Audience, "sub": "s", "exp": time.Now().Add(-time.Minute).Unix()},
+		"expired":        {"iss": provider.Issuer, "aud": provider.Audience, "sub": "s", "exp": time.Now().Add(-time.Minute).Unix()},
 		"wrong-audience": {"iss": provider.Issuer, "aud": []string{provider.Audience, "routing-only"}, "sub": "s", "exp": time.Now().Add(time.Hour).Unix(), "azp": "wrong"},
 	} {
 		t.Run(name, func(t *testing.T) {
