@@ -1,0 +1,40 @@
+name: Bootstrap repository source
+
+on:
+  push:
+    branches:
+      - feat/milestone-0-1-foundation
+    paths:
+      - .github/workflows/bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out bootstrap branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Verify and extract source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/chunk* | base64 --decode > /tmp/stormrelay.tar.xz
+          echo "764939a2fc12842e53a3d86b12634ba6d16fa91b3643215b073baceb722e50c3  /tmp/stormrelay.tar.xz" | sha256sum --check --strict
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          tar -xJf /tmp/stormrelay.tar.xz -C .
+
+      - name: Commit materialized repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "feat: implement milestone 0 and 1 vertical slice"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
