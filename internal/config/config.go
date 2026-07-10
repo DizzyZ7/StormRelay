@@ -34,12 +34,19 @@ type Config struct {
 	AllowUnauthenticatedSources bool
 	RunbookHTTPAllowedHosts     []string
 	PluginAllowedHosts          []string
+	OTLPTraceEndpoint           string
+	OTelTraceSampleRatio        float64
+	OTelTraceExportTimeout      time.Duration
 }
 
 func Load(serviceName, version string) (Config, error) {
 	master, err := decodeMasterKey(os.Getenv("STORMRELAY_MASTER_KEY"))
 	if err != nil {
 		return Config{}, err
+	}
+	traceEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"))
+	if traceEndpoint == "" {
+		traceEndpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	}
 	cfg := Config{
 		ServiceName:                 serviceName,
@@ -66,6 +73,9 @@ func Load(serviceName, version string) (Config, error) {
 		AllowUnauthenticatedSources: envBool("STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES", false),
 		RunbookHTTPAllowedHosts:     envCSV("STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS"),
 		PluginAllowedHosts:          envCSV("STORMRELAY_PLUGIN_ALLOWED_HOSTS"),
+		OTLPTraceEndpoint:           traceEndpoint,
+		OTelTraceSampleRatio:        envFloat("STORMRELAY_OTEL_TRACE_SAMPLE_RATIO", 0.10),
+		OTelTraceExportTimeout:      envDuration("STORMRELAY_OTEL_EXPORT_TIMEOUT", 10*time.Second),
 	}
 	if cfg.BootstrapAPIKey == "" {
 		return Config{}, fmt.Errorf("STORMRELAY_BOOTSTRAP_API_KEY is required")
@@ -75,6 +85,12 @@ func Load(serviceName, version string) (Config, error) {
 	}
 	if cfg.RunbookConcurrency < 1 || cfg.RunbookConcurrency > 64 {
 		return Config{}, fmt.Errorf("runbook concurrency must be between 1 and 64")
+	}
+	if cfg.OTelTraceSampleRatio < 0 || cfg.OTelTraceSampleRatio > 1 {
+		return Config{}, fmt.Errorf("STORMRELAY_OTEL_TRACE_SAMPLE_RATIO must be between 0 and 1")
+	}
+	if cfg.OTelTraceExportTimeout <= 0 || cfg.OTelTraceExportTimeout > time.Minute {
+		return Config{}, fmt.Errorf("STORMRELAY_OTEL_EXPORT_TIMEOUT must be greater than zero and at most one minute")
 	}
 	return cfg, nil
 }
@@ -101,6 +117,17 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+func envFloat(name string, fallback float64) float64 {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseFloat(v, 64)
 	if err != nil {
 		return fallback
 	}
