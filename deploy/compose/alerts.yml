@@ -1,0 +1,108 @@
+groups:
+  - name: stormrelay.availability
+    interval: 30s
+    rules:
+      - alert: StormRelayTargetDown
+        expr: up{job=~"stormrelay-(server|worker)"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: stormrelay
+        annotations:
+          summary: "StormRelay {{ $labels.job }} is unavailable"
+          description: "Prometheus has been unable to scrape {{ $labels.instance }} for at least two minutes."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/operations.md"
+
+      - alert: StormRelayEventPipelineStalled
+        expr: sum(increase(stormrelay_ingress_events_total[10m])) > 0 and sum(increase(stormrelay_event_processing_latency_seconds_count[10m])) == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: stormrelay
+        annotations:
+          summary: "StormRelay event processing appears stalled"
+          description: "Events entered StormRelay during the last ten minutes, but the worker completed none. Check worker health, JetStream, PostgreSQL, and the DLQ."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/operations.md"
+
+  - name: stormrelay.capacity
+    interval: 30s
+    rules:
+      - alert: StormRelayJetStreamBacklogHigh
+        expr: max(stormrelay_jetstream_consumer_lag{job="stormrelay-worker"}) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: stormrelay
+        annotations:
+          summary: "StormRelay JetStream backlog is growing"
+          description: "The worker consumer lag has remained above 100 messages for five minutes (current value: {{ $value }})."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/operations.md"
+
+      - alert: StormRelayDatabasePoolSaturated
+        expr: max by (job) (stormrelay_database_pool_acquired) / clamp_min(max by (job) (stormrelay_database_pool_max), 1) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: stormrelay
+        annotations:
+          summary: "StormRelay database pool is near saturation"
+          description: "More than 85% of the PostgreSQL pool is acquired for {{ $labels.job }}. Current utilization ratio: {{ $value | humanizePercentage }}."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/operations.md"
+
+      - alert: StormRelayOpenIncidentLoadHigh
+        expr: max(stormrelay_open_incidents) > 100
+        for: 15m
+        labels:
+          severity: warning
+          service: stormrelay
+        annotations:
+          summary: "StormRelay has a sustained high incident load"
+          description: "More than 100 incidents have remained open for at least fifteen minutes (current value: {{ $value }}). Tune the threshold for the deployment's normal workload."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/operations.md"
+
+  - name: stormrelay.errors
+    interval: 30s
+    rules:
+      - alert: StormRelayEventRejectionRatioHigh
+        expr: sum(rate(stormrelay_rejected_events_total[10m])) / clamp_min(sum(rate(stormrelay_ingress_events_total[10m]) + rate(stormrelay_rejected_events_total[10m])), 0.001) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          service: stormrelay
+        annotations:
+          summary: "StormRelay is rejecting an elevated share of events"
+          description: "More than 10% of attempted event ingress has been rejected for ten minutes. Check authentication, replay, rate-limit, and payload-limit errors."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/operations.md"
+
+      - alert: StormRelayRunbookFailuresDetected
+        expr: sum(increase(stormrelay_runbook_failures_total[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: stormrelay
+        annotations:
+          summary: "StormRelay runbook failures detected"
+          description: "At least one runbook failed during the last ten minutes. Review execution state, ambiguous outcomes, retries, and rollback status."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/runbooks.md"
+
+      - alert: StormRelayPluginFailuresDetected
+        expr: sum(increase(stormrelay_plugin_failures_total[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: stormrelay
+        annotations:
+          summary: "StormRelay process-plugin failures detected"
+          description: "At least one process-plugin call failed during the last ten minutes. Review plugin health, protocol compatibility, deadlines, and credentials."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/plugin-sdk.md"
+
+      - alert: StormRelayNotificationFailuresDetected
+        expr: sum(increase(stormrelay_notification_delivery_failures_total[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: stormrelay
+        annotations:
+          summary: "StormRelay notification delivery failures detected"
+          description: "At least one notification delivery failed during the last ten minutes. Review provider availability, credentials, retry state, and outbox records."
+          runbook_url: "https://github.com/DizzyZ7/StormRelay/blob/main/docs/operations.md"
