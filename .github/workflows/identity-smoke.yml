@@ -20,7 +20,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./tests/smoke-identity.sh 2>&1 | tee identity-smoke.log
+          bash tests/smoke-identity.sh 2>&1 | tee identity-smoke.log
       - name: Upload identity diagnostics
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
