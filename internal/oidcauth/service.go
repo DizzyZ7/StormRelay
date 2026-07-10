@@ -33,14 +33,32 @@ type Discovery struct {
 	SupportedSigningAlgs []string
 }
 
+type identityStore interface {
+	FindOIDCProvider(context.Context, string, []string) (storage.OIDCProvider, error)
+	AuthenticateOIDCIdentity(context.Context, string, string) (auth.Principal, error)
+}
+
+type tokenVerifier interface {
+	Verify(context.Context, string) (*oidc.IDToken, error)
+}
+
+type verifierFactory func(context.Context, storage.OIDCProvider) (tokenVerifier, error)
+
 type Service struct {
-	store *storage.Store
-	mu    sync.Mutex
-	cache map[string]*oidc.IDTokenVerifier
+	store   identityStore
+	factory verifierFactory
+	mu      sync.Mutex
+	cache   map[string]tokenVerifier
 }
 
 func NewService(store *storage.Store) *Service {
-	return &Service{store: store, cache: map[string]*oidc.IDTokenVerifier{}}
+	service := &Service{store: store, cache: map[string]tokenVerifier{}}
+	service.factory = service.newRemoteVerifier
+	return service
+}
+
+func newService(store identityStore, factory verifierFactory) *Service {
+	return &Service{store: store, factory: factory, cache: map[string]tokenVerifier{}}
 }
 
 func Discover(ctx context.Context, issuer string) (Discovery, error) {
@@ -132,13 +150,27 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (auth.Princ
 	return principal, nil
 }
 
-func (s *Service) verifier(ctx context.Context, provider storage.OIDCProvider) (*oidc.IDTokenVerifier, error) {
+func (s *Service) verifier(ctx context.Context, provider storage.OIDCProvider) (tokenVerifier, error) {
 	cacheKey := fmt.Sprintf("%s:%d", provider.ID, provider.Version)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if verifier, ok := s.cache[cacheKey]; ok {
 		return verifier, nil
 	}
+	verifier, err := s.factory(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	for key := range s.cache {
+		if strings.HasPrefix(key, provider.ID+":") {
+			delete(s.cache, key)
+		}
+	}
+	s.cache[cacheKey] = verifier
+	return verifier, nil
+}
+
+func (s *Service) newRemoteVerifier(ctx context.Context, provider storage.OIDCProvider) (tokenVerifier, error) {
 	parsedJWKS, err := validateHTTPSURL(provider.JWKSURI)
 	if err != nil {
 		return nil, err
@@ -149,17 +181,10 @@ func (s *Service) verifier(ctx context.Context, provider storage.OIDCProvider) (
 	}
 	keyContext := oidc.ClientContext(context.Background(), client)
 	keySet := oidc.NewRemoteKeySet(keyContext, provider.JWKSURI)
-	verifier := oidc.NewVerifier(provider.Issuer, keySet, &oidc.Config{
+	return oidc.NewVerifier(provider.Issuer, keySet, &oidc.Config{
 		ClientID:             provider.Audience,
 		SupportedSigningAlgs: provider.SupportedSigningAlgs,
-	})
-	for key := range s.cache {
-		if strings.HasPrefix(key, provider.ID+":") {
-			delete(s.cache, key)
-		}
-	}
-	s.cache[cacheKey] = verifier
-	return verifier, nil
+	}), nil
 }
 
 type routingClaims struct {
