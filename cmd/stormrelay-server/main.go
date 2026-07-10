@@ -33,12 +33,29 @@ func run() error {
 	}
 	logger := telemetry.NewLogger(cfg.ServiceName, cfg.Version)
 	slog.SetDefault(logger)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	tracing, err := telemetry.SetupTracing(ctx, telemetry.TracingConfig{
+		ServiceName:   cfg.ServiceName,
+		Version:       cfg.Version,
+		Endpoint:      cfg.OTLPTraceEndpoint,
+		SampleRatio:   cfg.OTelTraceSampleRatio,
+		ExportTimeout: cfg.OTelTraceExportTimeout,
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if shutdownErr := tracing.Shutdown(shutdownCtx); shutdownErr != nil {
+			logger.Error("flush traces failed", "error", shutdownErr)
+		}
+	}()
 	box, err := cryptox.NewBox(cfg.MasterKey)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 	store, err := storage.Open(ctx, cfg.DatabaseURL, box, logger)
 	if err != nil {
 		return err
@@ -58,7 +75,7 @@ func run() error {
 	handler := api.New(cfg, store, bus, metrics, logger).Handler()
 	server := &http.Server{Addr: cfg.HTTPAddress, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	errCh := make(chan error, 1)
-	go func() { logger.Info("server listening", "address", cfg.HTTPAddress); errCh <- server.ListenAndServe() }()
+	go func() { logger.Info("server listening", "address", cfg.HTTPAddress, "otlp_traces_enabled", cfg.OTLPTraceEndpoint != ""); errCh <- server.ListenAndServe() }()
 	select {
 	case <-ctx.Done():
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
