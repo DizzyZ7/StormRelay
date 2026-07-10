@@ -20,4 +20,4 @@ jobs:
         with:
           languages: go
       - uses: github/codeql-action/autobuild@c7c896d71b3055d36f2aff93b16bcc6c69923b91
-      - uses: github/codeql-action/analyze@c7c896d71b3055d36f2aff93b16bcc6c69923b91
+      - uses: github/codeql-action/analyze@85830a2768c17af843348fb4e07bffeb014298ce
