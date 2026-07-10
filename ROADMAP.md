@@ -8,13 +8,13 @@ Implemented: architecture, threat model, ADRs, community files, CI, Compose deve
 
 Implemented: generic and structured CloudEvents webhook ingestion, payload limits, HMAC/bearer authentication, replay checks, rate limiting, JetStream publish acknowledgement, raw and normalized storage, concurrent deduplication, correlation, incident state machine, explainable policies, mock/Telegram notification outbox, acknowledgement, audit export, CLI, health/readiness, metrics, integration tests, and DLQ handling.
 
-## Milestone 2 — runbook engine
+## Milestone 2 — durable runbook engine
 
-Not implemented. Durable leases, HTTP/wait/approval/plugin steps, recovery, retries, cancellation, dry-run, and explicit rollback are tracked beginning with issue #5.
+Implemented in the Milestone 2 branch and subject to merge gates: immutable versioned definitions, PostgreSQL execution snapshots and leases, HTTP/wait/approval/process-plugin steps, bounded retries and timeouts, persisted timers, crash recovery, pause/resume/cancel, dry-run, explicit operator retry for ambiguous outcomes, and reverse-order rollback.
 
 ## Milestone 3 — developer platform and identity
 
-Not implemented. Go/Python SDKs, process plugin runtime, version compatibility, OIDC, tenant-aware RBAC, and service accounts.
+Not implemented. Go/Python SDKs, OIDC, tenant-aware RBAC, service accounts, and broader plugin developer tooling remain separate work after Milestone 2 is merged.
 
 ## Milestone 4 — production operations
 

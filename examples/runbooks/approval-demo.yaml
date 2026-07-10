@@ -1,0 +1,17 @@
+apiVersion: stormrelay.io/v1
+kind: Runbook
+metadata:
+  id: approval-demo
+  version: 1
+  name: Approval and recovery demo
+spec:
+  steps:
+    - id: settle
+      type: wait
+      wait:
+        duration: 5s
+    - id: operator-approval
+      type: approval
+      approval:
+        prompt: Continue the demo execution?
+        expiresAfter: 15m

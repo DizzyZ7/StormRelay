@@ -38,6 +38,9 @@ services:
       STORMRELAY_BOOTSTRAP_API_KEY: local-development-only-change-me
       STORMRELAY_PUBLIC_BASE_URL: http://localhost:8080
       STORMRELAY_AUTO_MIGRATE: "true"
+      STORMRELAY_RUNBOOK_CONCURRENCY: "4"
+      STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS: echo-plugin
+      STORMRELAY_PLUGIN_ALLOWED_HOSTS: echo-plugin
     ports:
       - "8080:8080"
     depends_on:
@@ -74,6 +77,16 @@ services:
       timeout: 3s
       retries: 30
     networks: [backend]
+
+  echo-plugin:
+    build:
+      context: ../../examples/plugins/echo-python
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8090/stormrelay/plugin/v1/manifest"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   prometheus:
     image: prom/prometheus:v3.4.1

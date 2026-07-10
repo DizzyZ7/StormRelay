@@ -16,6 +16,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/events"
 	"github.com/DizzyZ7/StormRelay/internal/ingestion"
 	"github.com/DizzyZ7/StormRelay/internal/messaging"
+	"github.com/DizzyZ7/StormRelay/internal/plugins"
 	"github.com/DizzyZ7/StormRelay/internal/storage"
 	"github.com/nats-io/nats.go"
 )
@@ -151,5 +152,86 @@ func TestJetStreamPublishAndConsume(t *testing.T) {
 	}
 	if err := messages[0].AckSync(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDurableRunbookWaitApprovalAndPluginRegistry(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	runbookYAML := `apiVersion: stormrelay.io/v1
+kind: Runbook
+metadata:
+  id: integration-approval
+  version: 1
+  name: Integration approval
+spec:
+  steps:
+    - id: settle
+      type: wait
+      wait:
+        duration: 1s
+    - id: approve
+      type: approval
+      approval:
+        prompt: Continue integration execution?
+        expiresAfter: 15m
+`
+	applied, err := s.ApplyRunbook(ctx, storage.ApplyRunbookInput{TenantID: tenantID, DocumentYAML: runbookYAML, ActorID: "integration"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.RunbookKey != "integration-approval" || applied.ActiveVersion != 1 {
+		t.Fatalf("unexpected runbook: %+v", applied)
+	}
+	execution, err := s.StartExecution(ctx, storage.StartExecutionInput{TenantID: tenantID, RunbookKey: applied.RunbookKey, RequestedBy: "integration"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimExecutionSteps(ctx, "integration-worker", 1, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed) != 1 || claimed[0].Step.StepKey != "settle" {
+		t.Fatalf("unexpected first claim: %+v", claimed)
+	}
+	if err := s.ScheduleWait(ctx, claimed[0], time.Now().UTC().Add(-time.Second), "integration-worker"); err != nil {
+		t.Fatal(err)
+	}
+	if advanced, err := s.AdvanceRunbookTimers(ctx, "integration-timer"); err != nil || advanced != 1 {
+		t.Fatalf("advanced=%d err=%v", advanced, err)
+	}
+	claimed, err = s.ClaimExecutionSteps(ctx, "integration-worker", 1, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed) != 1 || claimed[0].Step.StepKey != "approve" {
+		t.Fatalf("unexpected approval claim: %+v", claimed)
+	}
+	approval, err := s.OpenApproval(ctx, claimed[0], "integration-worker", "Continue integration execution?", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := s.DecideApproval(ctx, tenantID, approval.ID, "approved", "integration-operator", "verified", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.ID != execution.ID || final.Status != "completed" {
+		t.Fatalf("unexpected final execution: %+v", final)
+	}
+
+	manifest := plugins.Manifest{PluginID: "integration-echo", Version: "0.1.0", ProtocolVersion: plugins.ProtocolVersion, Actions: []plugins.Action{{Name: "echo"}}}
+	registered, err := s.RegisterPlugin(ctx, storage.RegisterPluginInput{TenantID: tenantID, PluginKey: "integration-echo", Endpoint: "https://plugin.example", AuthMode: "none", TimeoutSeconds: 10, Manifest: manifest, ActorID: "integration"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registered.ProtocolVersion != plugins.ProtocolVersion {
+		t.Fatalf("protocol=%q", registered.ProtocolVersion)
+	}
+	resolved, bearer, err := s.PluginCredentialForAction(ctx, tenantID, "integration-echo", "echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bearer != "" || resolved.PluginKey != "integration-echo" {
+		t.Fatalf("unexpected plugin credential result: %+v bearer=%q", resolved, bearer)
 	}
 }

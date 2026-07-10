@@ -61,6 +61,14 @@ func run(args []string) error {
 		return c.policies(args[1:])
 	case "audit":
 		return c.audit(args[1:])
+	case "runbooks":
+		return c.runbooks(args[1:])
+	case "executions":
+		return c.executions(args[1:])
+	case "approvals":
+		return c.approvals(args[1:])
+	case "plugins":
+		return c.plugins(args[1:])
 	default:
 		return usage()
 	}
@@ -84,6 +92,18 @@ Commands:
   policies validate FILE
   policies apply FILE
   audit export [--after RFC3339] [--output FILE]
+  runbooks list
+  runbooks validate FILE
+  runbooks apply FILE
+  runbooks run RUNBOOK_KEY [--incident INCIDENT_ID] [--dry-run]
+  executions list
+  executions show EXECUTION_ID
+  executions pause|resume|cancel|retry|rollback EXECUTION_ID [--step STEP_ID]
+  approvals list
+  approvals approve|reject APPROVAL_ID [--reason TEXT]
+  plugins list
+  plugins register --key KEY --endpoint URL [--token TOKEN]
+  plugins test PLUGIN_KEY [--action ACTION] [--input JSON]
   version
 `)
 	return nil

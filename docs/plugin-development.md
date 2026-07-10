@@ -1,13 +1,16 @@
-# Plugin development
+# Process plugin protocol v1
 
-The process-based plugin protocol is designed but not implemented in Milestone 1. Do not deploy a plugin and assume StormRelay will execute it yet.
+Plugins run as separate processes or containers. StormRelay never loads plugin code into the server or worker address space.
 
-Protocol v1 will use HTTP JSON over a private network boundary:
+A plugin exposes:
 
-- `GET /stormrelay/plugin/v1/manifest` returns plugin ID, version, protocol version, declared actions, permissions, and input/output schemas.
-- `POST /stormrelay/plugin/v1/actions/{action}` receives an immutable input snapshot, execution ID, step ID, request ID, W3C trace context, deadline, and idempotency key.
-- responses contain status, bounded structured output, and a sanitized error; secrets must never be echoed.
+- `GET /stormrelay/plugin/v1/manifest`
+- `POST /stormrelay/plugin/v1/actions/{action}`
 
-The control plane will reject undeclared actions, incompatible protocol versions, oversized bodies, missing permissions, and calls beyond the configured deadline. Retry is controlled by StormRelay, not by hidden plugin loops.
+The manifest declares plugin ID, plugin version, protocol version `stormrelay.plugin/v1`, actions, permissions, and optional JSON schemas. Action names are strict identifiers and undeclared actions fail closed.
 
-See ADR-0003 and issue #4 for acceptance criteria.
+The action is selected by the validated URL path segment. Every request body contains protocol version, execution ID, step ID, request ID, optional trace context, deadline, immutable input, and an idempotency key. A valid response echoes the protocol version and idempotency key and returns `succeeded` or `failed` with bounded output or a sanitized error.
+
+StormRelay enforces exact host allowlists, DNS/IP checks, request deadlines, response size limits, strict JSON decoding, declared actions, and persisted retry policy. A timeout, crash, malformed response, incompatible version, or idempotency mismatch fails the step without affecting unrelated workers.
+
+See `examples/plugins/echo-python` for a harmless reference implementation.

@@ -28,9 +28,12 @@ type Config struct {
 	DedupeWindow                time.Duration
 	CorrelationWindow           time.Duration
 	WorkerConcurrency           int
+	RunbookConcurrency          int
 	AutoMigrate                 bool
 	TelegramToken               string
 	AllowUnauthenticatedSources bool
+	RunbookHTTPAllowedHosts     []string
+	PluginAllowedHosts          []string
 }
 
 func Load(serviceName, version string) (Config, error) {
@@ -57,15 +60,21 @@ func Load(serviceName, version string) (Config, error) {
 		DedupeWindow:                envDuration("STORMRELAY_DEDUPE_WINDOW", 15*time.Minute),
 		CorrelationWindow:           envDuration("STORMRELAY_CORRELATION_WINDOW", 30*time.Minute),
 		WorkerConcurrency:           envInt("STORMRELAY_WORKER_CONCURRENCY", 8),
+		RunbookConcurrency:          envInt("STORMRELAY_RUNBOOK_CONCURRENCY", 4),
 		AutoMigrate:                 envBool("STORMRELAY_AUTO_MIGRATE", true),
 		TelegramToken:               os.Getenv("STORMRELAY_TELEGRAM_BOT_TOKEN"),
 		AllowUnauthenticatedSources: envBool("STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES", false),
+		RunbookHTTPAllowedHosts:     envCSV("STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS"),
+		PluginAllowedHosts:          envCSV("STORMRELAY_PLUGIN_ALLOWED_HOSTS"),
 	}
 	if cfg.BootstrapAPIKey == "" {
 		return Config{}, fmt.Errorf("STORMRELAY_BOOTSTRAP_API_KEY is required")
 	}
 	if cfg.WorkerConcurrency < 1 || cfg.WorkerConcurrency > 128 {
 		return Config{}, fmt.Errorf("worker concurrency must be between 1 and 128")
+	}
+	if cfg.RunbookConcurrency < 1 || cfg.RunbookConcurrency > 64 {
+		return Config{}, fmt.Errorf("runbook concurrency must be between 1 and 64")
 	}
 	return cfg, nil
 }
@@ -118,4 +127,19 @@ func envDuration(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+func envCSV(name string) []string {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.ToLower(strings.TrimSpace(part))
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

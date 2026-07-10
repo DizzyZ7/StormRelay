@@ -6,7 +6,7 @@
 - API keys and future OIDC identities;
 - original webhook payloads;
 - normalized event and incident history;
-- policy and future runbook definitions;
+- policy and runbook definitions plus immutable execution snapshots;
 - acknowledgement tokens;
 - notification-provider credentials;
 - append-only audit records.
@@ -18,7 +18,7 @@
 3. Worker to PostgreSQL.
 4. Worker to external notification providers.
 5. Operator API clients to the control plane.
-6. Future process plugins and shell workers to the core system.
+6. Out-of-process plugins and outbound HTTP actions to the core system.
 
 ## Primary threats and controls
 
@@ -52,7 +52,7 @@ The application writes audit records through inserts only. A database trigger re
 
 ### SSRF and command execution
 
-Milestone 1 has no generic outbound webhook adapter, plugin runtime, or shell action. Future implementations must apply destination allowlists, DNS/IP revalidation, network policy, image and command allowlists, read-only filesystems, resource limits, and human approval. Shell actions remain disabled by default.
+Milestone 2 HTTP and process-plugin actions require exact configured host allowlists. The client resolves the hostname, rejects loopback, link-local, multicast, unspecified, and metadata addresses, pins the permitted IP set for the request, disables proxies, and rejects redirects, URL userinfo, and fragments. Plugin actions must be declared in a versioned manifest and use bounded strict JSON. Generic shell execution is not implemented.
 
 ## Residual risks
 

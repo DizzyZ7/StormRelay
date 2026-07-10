@@ -14,6 +14,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/cryptox"
 	"github.com/DizzyZ7/StormRelay/internal/messaging"
 	"github.com/DizzyZ7/StormRelay/internal/notifications"
+	"github.com/DizzyZ7/StormRelay/internal/runbookengine"
 	"github.com/DizzyZ7/StormRelay/internal/storage"
 	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/DizzyZ7/StormRelay/internal/worker"
@@ -59,6 +60,7 @@ func run() error {
 	metrics := &telemetry.Metrics{}
 	notifier := notifications.New(logger, cfg.TelegramToken)
 	w := worker.New(cfg, store, bus, notifier, metrics, logger)
+	runbookWorker := runbookengine.New(cfg, store, metrics, logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(rw http.ResponseWriter, _ *http.Request) {
@@ -100,25 +102,27 @@ func run() error {
 		logger.Info("worker health server listening", "address", cfg.WorkerHTTPAddress)
 		healthErr <- healthServer.ListenAndServe()
 	}()
-	workerErr := make(chan error, 1)
-	go func() { workerErr <- w.Run(ctx) }()
+	componentErr := make(chan error, 2)
+	go func() { componentErr <- w.Run(ctx) }()
+	go func() { componentErr <- runbookWorker.Run(ctx) }()
 	select {
 	case <-ctx.Done():
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer shutdownCancel()
-		_ = healthServer.Shutdown(shutdownCtx)
-		return <-workerErr
 	case err := <-healthErr:
-		cancel()
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+		if !errors.Is(err, http.ErrServerClosed) {
+			cancel()
+			return err
 		}
-		return err
-	case err := <-workerErr:
-		cancel()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer shutdownCancel()
-		_ = healthServer.Shutdown(shutdownCtx)
-		return err
+	case err := <-componentErr:
+		if err != nil {
+			cancel()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutdownCancel()
+			_ = healthServer.Shutdown(shutdownCtx)
+			return err
+		}
 	}
+	cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	return healthServer.Shutdown(shutdownCtx)
 }

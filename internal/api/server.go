@@ -17,6 +17,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/id"
 	"github.com/DizzyZ7/StormRelay/internal/ingestion"
 	"github.com/DizzyZ7/StormRelay/internal/messaging"
+	pluginprotocol "github.com/DizzyZ7/StormRelay/internal/plugins"
 	"github.com/DizzyZ7/StormRelay/internal/storage"
 	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 )
@@ -25,6 +26,7 @@ type Server struct {
 	cfg           config.Config
 	store         *storage.Store
 	bus           *messaging.Bus
+	pluginClient  *pluginprotocol.Client
 	metrics       *telemetry.Metrics
 	logger        *slog.Logger
 	bootstrapHash [32]byte
@@ -34,7 +36,7 @@ type Server struct {
 }
 
 func New(cfg config.Config, store *storage.Store, bus *messaging.Bus, metrics *telemetry.Metrics, logger *slog.Logger) *Server {
-	return &Server{cfg: cfg, store: store, bus: bus, metrics: metrics, logger: logger, bootstrapHash: sha256.Sum256([]byte(cfg.BootstrapAPIKey)), limiters: map[string]*ingestion.Limiter{}, replay: ingestion.NewReplayCache(100000)}
+	return &Server{cfg: cfg, store: store, bus: bus, pluginClient: pluginprotocol.NewClient(cfg.PluginAllowedHosts), metrics: metrics, logger: logger, bootstrapHash: sha256.Sum256([]byte(cfg.BootstrapAPIKey)), limiters: map[string]*ingestion.Limiter{}, replay: ingestion.NewReplayCache(100000)}
 }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -76,6 +78,28 @@ func (s *Server) apiRoutes(w http.ResponseWriter, r *http.Request) {
 		s.createNotificationChannel(w, r)
 	case r.URL.Path == "/api/v1/audit/export" && r.Method == http.MethodGet:
 		s.exportAudit(w, r)
+	case r.URL.Path == "/api/v1/runbooks/validate" && r.Method == http.MethodPost:
+		s.validateRunbook(w, r)
+	case r.URL.Path == "/api/v1/runbooks" && r.Method == http.MethodGet:
+		s.listRunbooks(w, r)
+	case r.URL.Path == "/api/v1/runbooks" && r.Method == http.MethodPost:
+		s.applyRunbook(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/runbooks/"):
+		s.runbookRoute(w, r)
+	case r.URL.Path == "/api/v1/executions" && r.Method == http.MethodGet:
+		s.listExecutions(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/executions/"):
+		s.executionRoute(w, r)
+	case r.URL.Path == "/api/v1/approvals" && r.Method == http.MethodGet:
+		s.listApprovals(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/approvals/"):
+		s.approvalRoute(w, r)
+	case r.URL.Path == "/api/v1/plugins" && r.Method == http.MethodGet:
+		s.listPlugins(w, r)
+	case r.URL.Path == "/api/v1/plugins" && r.Method == http.MethodPost:
+		s.registerPlugin(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/plugins/"):
+		s.testPlugin(w, r)
 	default:
 		writeError(w, r, http.StatusNotFound, "not_found", "route not found", nil)
 	}
@@ -111,6 +135,14 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+type requestPrincipal struct {
+	TenantID  string
+	ActorType string
+	ActorID   string
+}
+type requestPrincipalKey struct{}
+
 func (s *Server) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		value := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
@@ -119,9 +151,22 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 			writeError(w, r, http.StatusUnauthorized, "unauthorized", "valid API key required", nil)
 			return
 		}
-		next.ServeHTTP(w, r)
+		principal := requestPrincipal{TenantID: s.cfg.DefaultTenantID, ActorType: "api-key", ActorID: "bootstrap-admin"}
+		ctx := context.WithValue(r.Context(), requestPrincipalKey{}, principal)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+func principal(r *http.Request) requestPrincipal {
+	value, ok := r.Context().Value(requestPrincipalKey{}).(requestPrincipal)
+	if !ok {
+		return requestPrincipal{}
+	}
+	return value
+}
+func tenantID(r *http.Request) string  { return principal(r).TenantID }
+func actorID(r *http.Request) string   { return principal(r).ActorID }
+func actorType(r *http.Request) string { return principal(r).ActorType }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "service": s.cfg.ServiceName, "version": s.cfg.Version})
