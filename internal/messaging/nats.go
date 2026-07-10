@@ -34,7 +34,7 @@ func Connect(url, stream, subject, consumer, service string) (*Bus, error) {
 	return b, nil
 }
 func (b *Bus) ensureStream() error {
-	cfg := &nats.StreamConfig{Name: b.stream, Subjects: []string{b.subject, b.subject + ".dlq"}, Storage: nats.FileStorage, Retention: nats.LimitsPolicy, MaxAge: 7 * 24 * time.Hour, DuplicateWindow: 15 * time.Minute, Discard: nats.DiscardOld}
+	cfg := &nats.StreamConfig{Name: b.stream, Subjects: []string{b.subject, b.subject + ".dlq"}, Storage: nats.FileStorage, Retention: nats.LimitsPolicy, MaxAge: 7 * 24 * time.Hour, Duplicates: 15 * time.Minute, Discard: nats.DiscardOld}
 	info, err := b.js.StreamInfo(b.stream)
 	if err == nats.ErrStreamNotFound {
 		_, err = b.js.AddStream(cfg)
