@@ -38,3 +38,5 @@ jobs:
           git add --all
           git commit -m "feat: implement milestone 0 and 1 vertical slice"
           git push origin "HEAD:${GITHUB_REF_NAME}"
+
+# Triggered after all archive chunks were uploaded.
