@@ -24,5 +24,6 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - Alert-specific operator runbooks with diagnosis, safe mitigation, and closure criteria.
 - Dedicated `promtool`, Compose-model, dashboard-JSON, contract, and live provisioning checks.
 - Automated PostgreSQL backup/restore drill with deterministic data fingerprints, raw-payload SHA-256 verification, foreign-key and append-only audit checks, restored encrypted credential validation, and JetStream redelivery deduplication coverage.
+- Reusable guarded PostgreSQL backup/restore helpers with atomic archive publication, SHA-256 verification, explicit confirmation, no-overwrite behavior, non-empty-target refusal, and a dedicated helper contract test.
 
 No v0.1.0 release has been claimed yet.

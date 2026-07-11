@@ -9,7 +9,10 @@ on:
       - "internal/storage/**"
       - "internal/worker/**"
       - "deploy/compose/**"
+      - "scripts/postgres-backup.sh"
+      - "scripts/postgres-restore.sh"
       - "tests/failure/backup-restore.sh"
+      - "tests/failure/backup-restore-helpers.sh"
       - ".github/workflows/backup-restore.yml"
       - "Makefile"
   push:
@@ -22,7 +25,10 @@ on:
       - "internal/storage/**"
       - "internal/worker/**"
       - "deploy/compose/**"
+      - "scripts/postgres-backup.sh"
+      - "scripts/postgres-restore.sh"
       - "tests/failure/backup-restore.sh"
+      - "tests/failure/backup-restore-helpers.sh"
       - ".github/workflows/backup-restore.yml"
       - "Makefile"
   workflow_dispatch:
@@ -34,13 +40,24 @@ concurrency:
 jobs:
   drill:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
         with:
           persist-credentials: false
-      - name: Validate drill shell syntax
-        run: bash -n ./tests/failure/backup-restore.sh
+      - name: Validate recovery shell and Compose model
+        shell: bash
+        run: |
+          bash -n ./tests/failure/backup-restore.sh
+          bash -n ./tests/failure/backup-restore-helpers.sh
+          sh -n ./scripts/postgres-backup.sh
+          sh -n ./scripts/postgres-restore.sh
+          docker compose -f deploy/compose/docker-compose.yml config --quiet
+      - name: Run PostgreSQL helper guardrail contract
+        shell: bash
+        run: |
+          set -o pipefail
+          bash ./tests/failure/backup-restore-helpers.sh 2>&1 | tee backup-restore-helpers.log
       - name: Run PostgreSQL backup and restore drill
         shell: bash
         run: |
@@ -51,6 +68,8 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: backup-restore-diagnostics
-          path: backup-restore.log
+          path: |
+            backup-restore-helpers.log
+            backup-restore.log
           if-no-files-found: warn
           retention-days: 1
