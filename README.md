@@ -4,7 +4,7 @@ StormRelay is a self-hosted event-correlation and incident-response control plan
 
 It accepts authenticated webhooks, preserves the original payload, normalizes events into a CloudEvents-compatible model, deduplicates concurrent deliveries, correlates events into incidents, evaluates explainable policies, notifies responders, runs durable response automation, and records an append-only audit trail.
 
-> **Current status:** Milestones 0–3 are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API SDKs, process-plugin SDKs, and a live conformance runner. Milestone 4 includes OpenTelemetry tracing, provisioned Prometheus alerts, Grafana operations dashboards, alert-specific runbooks, and an automated PostgreSQL backup/restore drill. The web UI, Kubernetes packaging, and release automation remain later work.
+> **Current status:** Milestones 0–3 are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API SDKs, process-plugin SDKs, and a live conformance runner. Milestone 4 includes OpenTelemetry tracing, provisioned Prometheus alerts, Grafana operations dashboards, alert-specific runbooks, an automated PostgreSQL backup/restore drill, and deterministic failure-injection coverage for PostgreSQL, NATS, duplicates, poison messages, runbook recovery, plugins, and notification providers. The web UI, Kubernetes packaging, and release automation remain later work.
 
 ## Why not only Alertmanager or a webhook router?
 
@@ -69,12 +69,15 @@ curl -fsS \
 
 ## Configuration
 
-All server and worker settings use the `STORMRELAY_` prefix, except the standard OpenTelemetry endpoint variables. See `.env.example`, `docs/operations.md`, and `docs/observability.md` for the complete development and operations configuration.
+All server and worker settings use the `STORMRELAY_` prefix, except the standard OpenTelemetry endpoint variables. See `.env.example`, `docs/operations.md`, `docs/observability.md`, and `docs/failure-testing.md` for the complete development and operations configuration.
 
-Important security settings include:
+Important security and reliability settings include:
 
 - `STORMRELAY_MASTER_KEY`: base64-encoded 32-byte key used for encrypted integration secrets.
 - `STORMRELAY_BOOTSTRAP_API_KEY`: initial tenant-admin key; replace it outside local development.
+- `STORMRELAY_EVENT_MAX_DELIVERIES`: attempts before an event is moved to DLQ, default `5`.
+- `STORMRELAY_EVENT_RETRY_BASE_DELAY`: initial event retry delay, default `1s`.
+- `STORMRELAY_EVENT_RETRY_MAX_DELAY`: capped event retry delay, default `30s`.
 - `STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS`: exact hosts available to runbook HTTP steps.
 - `STORMRELAY_PLUGIN_ALLOWED_HOSTS`: exact hosts available to process plugins.
 
@@ -122,7 +125,7 @@ Supported Go and Python process-plugin server SDKs implement `stormrelay.plugin/
 - Protected API routes are fail-closed: new route families require an explicit permission mapping.
 - Trace spans exclude authorization headers, credentials, raw request/event payloads, notification bodies, and unbounded labels.
 
-See `SECURITY.md`, `docs/threat-model.md`, `docs/identity.md`, `docs/observability.md`, and `docs/alert-runbooks.md` for details.
+See `SECURITY.md`, `docs/threat-model.md`, `docs/identity.md`, `docs/observability.md`, `docs/failure-testing.md`, and `docs/alert-runbooks.md` for details.
 
 ## Development
 
@@ -130,11 +133,12 @@ See `SECURITY.md`, `docs/threat-model.md`, `docs/identity.md`, `docs/observabili
 make test
 make test-race
 make build
-make compose-smoke
+make smoke
 make backup-restore-drill
+make failure
 ```
 
-Integration tests require PostgreSQL and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, Plugin Conformance, Observability Config validation, the PostgreSQL backup/restore drill, and CodeQL.
+Integration and failure tests require Docker, PostgreSQL, and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, Plugin Conformance, Observability Config validation, the PostgreSQL backup/restore drill, dedicated failure injection, and CodeQL.
 
 ## Project status and releases
 
