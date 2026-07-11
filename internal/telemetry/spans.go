@@ -182,9 +182,9 @@ func SetSpanInt(span trace.Span, key string, value int) {
 	}
 }
 
-func SetSpanString(span trace.Span, key, value string) {
+func SetSpanString[T ~string](span trace.Span, key string, value T) {
 	if span != nil {
-		span.SetAttributes(attribute.String(key, boundedSpanAttribute(value)))
+		span.SetAttributes(attribute.String(key, boundedSpanAttribute(string(value))))
 	}
 }
 
