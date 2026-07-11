@@ -73,7 +73,8 @@ func (c *Client) Discover(ctx context.Context, endpoint, bearer string, timeout 
 			telemetry.SetSpanOutcome(span, "failed")
 		} else {
 			telemetry.SetSpanOutcome(span, "succeeded")
-			span.End()
+		}
+		span.End()
 	}()
 
 	urlValue := strings.TrimRight(endpoint, "/") + "/stormrelay/plugin/v1/manifest"
