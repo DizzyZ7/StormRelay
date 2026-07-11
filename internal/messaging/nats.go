@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/DizzyZ7/StormRelay/internal/events"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/nats-io/nats.go"
 )
 
@@ -60,7 +61,14 @@ func (b *Bus) Ready() error {
 	_, err := b.js.StreamInfo(b.stream)
 	return err
 }
-func (b *Bus) PublishEvent(ctx context.Context, e events.Event, msgID string) error {
+func (b *Bus) PublishEvent(ctx context.Context, e events.Event, msgID string) (err error) {
+	publishCtx, span := telemetry.StartEventProducerSpan(ctx, b.subject, e.ID, e.Type)
+	defer func() { telemetry.EndSpan(span, err) }()
+
+	// Continue the current producer span in the durable event envelope. This
+	// creates one connected server -> producer -> consumer trace without sending
+	// baggage or any request payload through the message headers.
+	e.TraceParent = telemetry.TraceParent(publishCtx)
 	data, err := json.Marshal(e)
 	if err != nil {
 		return err
@@ -70,13 +78,14 @@ func (b *Bus) PublishEvent(ctx context.Context, e events.Event, msgID string) er
 	msg.Header.Set(nats.MsgIdHdr, msgID)
 	msg.Header.Set("Content-Type", "application/json")
 	msg.Header.Set("X-StormRelay-Schema", events.SchemaVersion)
-	ack, err := b.js.PublishMsg(msg, nats.Context(ctx))
+	ack, err := b.js.PublishMsg(msg, nats.Context(publishCtx))
 	if err != nil {
 		return fmt.Errorf("publish event: %w", err)
 	}
 	if ack == nil || ack.Stream != b.stream {
 		return fmt.Errorf("invalid JetStream publish acknowledgement")
 	}
+	telemetry.SetSpanString(span, "messaging.nats.stream", ack.Stream)
 	return nil
 }
 func (b *Bus) Subscription() (*nats.Subscription, error) {
