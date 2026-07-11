@@ -10,7 +10,9 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/events"
 	"github.com/DizzyZ7/StormRelay/internal/id"
 	"github.com/DizzyZ7/StormRelay/internal/policies"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type ProcessOptions struct {
@@ -28,70 +30,174 @@ func (s *Store) ProcessEvent(ctx context.Context, e events.Event, opt ProcessOpt
 	if opt.ActorID == "" {
 		opt.ActorID = "worker"
 	}
+
+	txCtx, txSpan := telemetry.StartOperationSpan(ctx, "stormrelay.event.transaction", trace.SpanKindClient,
+		telemetry.StringAttribute("db.system.name", "postgresql"),
+		telemetry.StringAttribute("db.operation.name", "transaction"),
+	)
+	defer txSpan.End()
+
 	rawID, err := id.New()
 	if err != nil {
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, err
 	}
 	normalizedID, err := id.New()
 	if err != nil {
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, err
 	}
 	payloadHash := sha256.Sum256(e.RawPayload)
 	bucket := timeBucket(e.ReceivedAt, opt.DedupeWindow)
 	dedupeKey := events.DedupeKey(e)
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.pool.BeginTx(txCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
+		telemetry.MarkSpanError(txSpan)
+		telemetry.SetSpanOutcome(txSpan, "begin_failed")
 		return ProcessResult{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	_, err = tx.Exec(ctx, `INSERT INTO raw_events(id,tenant_id,source_id,content_type,payload,payload_sha256,received_at,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, rawID, e.TenantID, e.SourceID, e.DataContentType, []byte(e.RawPayload), payloadHash[:], e.ReceivedAt, e.RequestID)
+
+	rawCtx, rawSpan := telemetry.StartOperationSpan(txCtx, "stormrelay.event.persist_raw", trace.SpanKindClient,
+		telemetry.StringAttribute("db.system.name", "postgresql"),
+		telemetry.StringAttribute("db.operation.name", "insert"),
+	)
+	_, err = tx.Exec(rawCtx, `INSERT INTO raw_events(id,tenant_id,source_id,content_type,payload,payload_sha256,received_at,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, rawID, e.TenantID, e.SourceID, e.DataContentType, []byte(e.RawPayload), payloadHash[:], e.ReceivedAt, e.RequestID)
 	if err != nil {
+		telemetry.MarkSpanError(rawSpan)
+		telemetry.SetSpanOutcome(rawSpan, "failed")
+		rawSpan.End()
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, fmt.Errorf("insert raw event: %w", err)
 	}
+	telemetry.SetSpanOutcome(rawSpan, "persisted")
+	rawSpan.End()
 
+	dedupeCtx, dedupeSpan := telemetry.StartOperationSpan(txCtx, "stormrelay.event.deduplicate", trace.SpanKindInternal)
 	var eventID string
-	err = tx.QueryRow(ctx, `INSERT INTO normalized_events(id,tenant_id,source_id,raw_event_id,ce_id,source_event_id,idempotency_key,dedupe_key,dedupe_bucket,fingerprint,ce_source,ce_type,subject,event_time,data_content_type,schema_version,trace_parent,labels,severity)
+	err = tx.QueryRow(dedupeCtx, `INSERT INTO normalized_events(id,tenant_id,source_id,raw_event_id,ce_id,source_event_id,idempotency_key,dedupe_key,dedupe_bucket,fingerprint,ce_source,ce_type,subject,event_time,data_content_type,schema_version,trace_parent,labels,severity)
 	VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$10,$11,$12,NULLIF($13,''),$14,$15,$16,NULLIF($17,''),$18,$19)
 	ON CONFLICT (tenant_id,source_id,dedupe_key,dedupe_bucket) DO NOTHING RETURNING id`, normalizedID, e.TenantID, e.SourceID, rawID, e.ID, e.SourceEventID, e.IdempotencyKey, dedupeKey, bucket, e.Fingerprint, e.Source, e.Type, e.Subject, e.Time, e.DataContentType, e.SchemaVersion, e.TraceParent, e.Labels, e.Severity).Scan(&eventID)
 	if err == pgx.ErrNoRows {
-		return s.recordDuplicate(ctx, tx, e, rawID, dedupeKey, bucket, opt.ActorID)
+		result, duplicateErr := s.recordDuplicate(dedupeCtx, tx, e, rawID, dedupeKey, bucket, opt.ActorID)
+		if duplicateErr != nil {
+			telemetry.MarkSpanError(dedupeSpan)
+			telemetry.SetSpanOutcome(dedupeSpan, "failed")
+			dedupeSpan.End()
+			telemetry.MarkSpanError(txSpan)
+			return ProcessResult{}, duplicateErr
+		}
+		dedupeSpan.SetAttributes(telemetry.Int64Attribute("stormrelay.duplicate.number", result.DuplicateNumber))
+		telemetry.SetSpanOutcome(dedupeSpan, "duplicate")
+		dedupeSpan.End()
+		telemetry.SetSpanOutcome(txSpan, "duplicate")
+		return result, nil
 	}
 	if err != nil {
+		telemetry.MarkSpanError(dedupeSpan)
+		telemetry.SetSpanOutcome(dedupeSpan, "failed")
+		dedupeSpan.End()
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, fmt.Errorf("insert normalized event: %w", err)
 	}
+	telemetry.SetSpanOutcome(dedupeSpan, "canonical")
+	dedupeSpan.End()
 
-	incident, created, err := s.correlate(ctx, tx, e, eventID, opt.CorrelationWindow)
+	correlationCtx, correlationSpan := telemetry.StartOperationSpan(txCtx, "stormrelay.incident.correlate", trace.SpanKindInternal)
+	incident, created, err := s.correlate(correlationCtx, tx, e, eventID, opt.CorrelationWindow)
 	if err != nil {
+		telemetry.MarkSpanError(correlationSpan)
+		telemetry.SetSpanOutcome(correlationSpan, "failed")
+		correlationSpan.End()
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, err
 	}
-	channels, suppressed, err := s.evaluatePolicies(ctx, tx, e, incident.ID, opt.ActorID)
+	correlationSpan.SetAttributes(telemetry.BoolAttribute("stormrelay.incident.created", created))
+	if created {
+		telemetry.SetSpanOutcome(correlationSpan, "created")
+	} else {
+		telemetry.SetSpanOutcome(correlationSpan, "updated")
+	}
+	correlationSpan.End()
+
+	policyCtx, policySpan := telemetry.StartOperationSpan(txCtx, "stormrelay.policy.evaluate", trace.SpanKindInternal)
+	channels, suppressed, evaluatedPolicies, matchedPolicies, err := s.evaluatePolicies(policyCtx, tx, e, incident.ID, opt.ActorID)
+	policySpan.SetAttributes(
+		telemetry.IntAttribute("stormrelay.policy.evaluated_count", evaluatedPolicies),
+		telemetry.IntAttribute("stormrelay.policy.matched_count", matchedPolicies),
+		telemetry.BoolAttribute("stormrelay.policy.suppressed", suppressed),
+	)
 	if err != nil {
+		telemetry.MarkSpanError(policySpan)
+		telemetry.SetSpanOutcome(policySpan, "failed")
+		policySpan.End()
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, err
 	}
+	telemetry.SetSpanOutcome(policySpan, "evaluated")
+	policySpan.End()
+
 	notificationIDs := []string{}
+	notificationCtx, notificationSpan := telemetry.StartOperationSpan(txCtx, "stormrelay.notification.enqueue", trace.SpanKindProducer)
 	if !suppressed {
 		if len(channels) == 0 {
 			channels = []string{"local-mock"}
 		}
-		ids, err := s.enqueueNotifications(ctx, tx, incident, channels, opt.PublicBaseURL)
-		if err != nil {
-			return ProcessResult{}, err
+		ids, enqueueErr := s.enqueueNotifications(notificationCtx, tx, incident, channels, opt.PublicBaseURL)
+		if enqueueErr != nil {
+			telemetry.MarkSpanError(notificationSpan)
+			telemetry.SetSpanOutcome(notificationSpan, "failed")
+			notificationSpan.End()
+			telemetry.MarkSpanError(txSpan)
+			return ProcessResult{}, enqueueErr
 		}
 		notificationIDs = ids
 	}
-	if err := appendAudit(ctx, tx, AuditInput{TenantID: e.TenantID, ActorType: "service", ActorID: opt.ActorID, Action: "event.accepted", ResourceType: "event", ResourceID: eventID, RequestID: e.RequestID, TraceID: traceIDFromParent(e.TraceParent), After: map[string]any{"id": eventID, "type": e.Type, "severity": e.Severity, "fingerprint": e.Fingerprint}, Metadata: map[string]any{"source_id": e.SourceID, "raw_event_id": rawID}}); err != nil {
+	notificationSpan.SetAttributes(telemetry.IntAttribute("stormrelay.notification.count", len(notificationIDs)))
+	if suppressed {
+		telemetry.SetSpanOutcome(notificationSpan, "suppressed")
+	} else {
+		telemetry.SetSpanOutcome(notificationSpan, "enqueued")
+	}
+	notificationSpan.End()
+
+	auditCtx, auditSpan := telemetry.StartOperationSpan(txCtx, "stormrelay.audit.append", trace.SpanKindClient,
+		telemetry.StringAttribute("db.system.name", "postgresql"),
+		telemetry.IntAttribute("stormrelay.audit.entry_count", 2),
+	)
+	if err := appendAudit(auditCtx, tx, AuditInput{TenantID: e.TenantID, ActorType: "service", ActorID: opt.ActorID, Action: "event.accepted", ResourceType: "event", ResourceID: eventID, RequestID: e.RequestID, TraceID: traceIDFromParent(e.TraceParent), After: map[string]any{"id": eventID, "type": e.Type, "severity": e.Severity, "fingerprint": e.Fingerprint}, Metadata: map[string]any{"source_id": e.SourceID, "raw_event_id": rawID}}); err != nil {
+		telemetry.MarkSpanError(auditSpan)
+		auditSpan.End()
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, err
 	}
 	action := "incident.updated"
 	if created {
 		action = "incident.created"
 	}
-	if err := appendAudit(ctx, tx, AuditInput{TenantID: e.TenantID, ActorType: "service", ActorID: opt.ActorID, Action: action, ResourceType: "incident", ResourceID: incident.ID, RequestID: e.RequestID, TraceID: traceIDFromParent(e.TraceParent), After: incident, Metadata: map[string]any{"event_id": eventID, "correlation_key": incident.CorrelationKey}}); err != nil {
+	if err := appendAudit(auditCtx, tx, AuditInput{TenantID: e.TenantID, ActorType: "service", ActorID: opt.ActorID, Action: action, ResourceType: "incident", ResourceID: incident.ID, RequestID: e.RequestID, TraceID: traceIDFromParent(e.TraceParent), After: incident, Metadata: map[string]any{"event_id": eventID, "correlation_key": incident.CorrelationKey}}); err != nil {
+		telemetry.MarkSpanError(auditSpan)
+		auditSpan.End()
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	telemetry.SetSpanOutcome(auditSpan, "appended")
+	auditSpan.End()
+
+	commitCtx, commitSpan := telemetry.StartOperationSpan(txCtx, "stormrelay.db.commit", trace.SpanKindClient,
+		telemetry.StringAttribute("db.system.name", "postgresql"),
+		telemetry.StringAttribute("db.operation.name", "commit"),
+	)
+	if err := tx.Commit(commitCtx); err != nil {
+		telemetry.MarkSpanError(commitSpan)
+		telemetry.SetSpanOutcome(commitSpan, "failed")
+		commitSpan.End()
+		telemetry.MarkSpanError(txSpan)
 		return ProcessResult{}, err
 	}
+	telemetry.SetSpanOutcome(commitSpan, "committed")
+	commitSpan.End()
+	telemetry.SetSpanOutcome(txSpan, "committed")
 	return ProcessResult{EventID: eventID, Incident: incident, NotificationIDs: notificationIDs}, nil
 }
 
@@ -165,44 +271,48 @@ func (s *Store) correlate(ctx context.Context, tx pgx.Tx, e events.Event, eventI
 	return in, created, nil
 }
 
-func (s *Store) evaluatePolicies(ctx context.Context, tx pgx.Tx, e events.Event, incidentID, actor string) ([]string, bool, error) {
+func (s *Store) evaluatePolicies(ctx context.Context, tx pgx.Tx, e events.Event, incidentID, actor string) ([]string, bool, int, int, error) {
 	rows, err := tx.Query(ctx, `SELECT p.policy_key,p.active_version,pv.document_yaml FROM policies p JOIN policy_versions pv ON pv.policy_id=p.id AND pv.version=p.active_version WHERE p.tenant_id=$1 AND p.enabled=true ORDER BY p.policy_key`, e.TenantID)
 	if err != nil {
-		return nil, false, err
+		return nil, false, 0, 0, err
 	}
 	defer rows.Close()
 	channels := []string{}
 	suppressed := false
 	matchedAny := false
+	evaluatedCount := 0
+	matchedCount := 0
 	for rows.Next() {
 		var key, document string
 		var version int
 		if err := rows.Scan(&key, &version, &document); err != nil {
-			return nil, false, err
+			return nil, false, evaluatedCount, matchedCount, err
 		}
+		evaluatedCount++
 		doc, err := policies.Parse([]byte(document))
 		if err != nil {
-			return nil, false, fmt.Errorf("stored policy %s is invalid: %w", key, err)
+			return nil, false, evaluatedCount, matchedCount, fmt.Errorf("stored policy %s is invalid: %w", key, err)
 		}
 		decision := policies.Evaluate(doc, e)
 		if decision.Matched {
 			matchedAny = true
+			matchedCount++
 			suppressed = suppressed || decision.Actions.Suppress
 			channels = append(channels, decision.Actions.NotificationChannels...)
 		}
 		if err := appendAudit(ctx, tx, AuditInput{TenantID: e.TenantID, ActorType: "service", ActorID: actor, Action: "policy.evaluated", ResourceType: "incident", ResourceID: incidentID, RequestID: e.RequestID, TraceID: traceIDFromParent(e.TraceParent), Metadata: map[string]any{"policy_id": decision.PolicyID, "policy_version": decision.PolicyVersion, "matched": decision.Matched, "actions": decision.Actions, "explanation": decision.Explanation, "inputs": decision.Inputs}}); err != nil {
-			return nil, false, err
+			return nil, false, evaluatedCount, matchedCount, err
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, false, err
+		return nil, false, evaluatedCount, matchedCount, err
 	}
 	if !matchedAny {
 		if err := appendAudit(ctx, tx, AuditInput{TenantID: e.TenantID, ActorType: "service", ActorID: actor, Action: "policy.default", ResourceType: "incident", ResourceID: incidentID, RequestID: e.RequestID, Metadata: map[string]any{"action": "notify", "channel": "local-mock", "explanation": "no enabled policy matched; safe local default"}}); err != nil {
-			return nil, false, err
+			return nil, false, evaluatedCount, matchedCount, err
 		}
 	}
-	return uniqueStrings(channels), suppressed, nil
+	return uniqueStrings(channels), suppressed, evaluatedCount, matchedCount, nil
 }
 
 func timeBucket(t time.Time, window time.Duration) time.Time {
