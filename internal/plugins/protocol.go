@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/DizzyZ7/StormRelay/internal/networkguard"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const ProtocolVersion = "stormrelay.plugin/v1"
@@ -61,24 +63,38 @@ type Client struct {
 
 func NewClient(allowedHosts []string) *Client { return &Client{guard: networkguard.New(allowedHosts)} }
 
-func (c *Client) Discover(ctx context.Context, endpoint, bearer string, timeout time.Duration) (Manifest, error) {
+func (c *Client) Discover(ctx context.Context, endpoint, bearer string, timeout time.Duration) (manifest Manifest, err error) {
+	discoveryCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.plugin.discover", trace.SpanKindClient,
+		telemetry.StringAttribute("stormrelay.plugin.protocol", ProtocolVersion),
+	)
+	defer func() {
+		if err != nil {
+			telemetry.MarkSpanError(span)
+			telemetry.SetSpanOutcome(span, "failed")
+		} else {
+			telemetry.SetSpanOutcome(span, "succeeded")
+			span.End()
+	}()
+
 	urlValue := strings.TrimRight(endpoint, "/") + "/stormrelay/plugin/v1/manifest"
-	client, parsed, err := c.guard.Client(ctx, urlValue, timeout)
+	client, parsed, err := c.guard.Client(discoveryCtx, urlValue, timeout)
 	if err != nil {
 		return Manifest{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	req, err := http.NewRequestWithContext(discoveryCtx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return Manifest{}, err
 	}
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
+	telemetry.InjectHTTPTrace(discoveryCtx, req.Header)
 	resp, err := client.Do(req)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("plugin manifest request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	span.SetAttributes(telemetry.IntAttribute("http.response.status_code", resp.StatusCode))
 	body, err := readBounded(resp.Body, 256<<10)
 	if err != nil {
 		return Manifest{}, err
@@ -86,7 +102,6 @@ func (c *Client) Discover(ctx context.Context, endpoint, bearer string, timeout 
 	if resp.StatusCode/100 != 2 {
 		return Manifest{}, fmt.Errorf("plugin manifest returned HTTP %d", resp.StatusCode)
 	}
-	var manifest Manifest
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&manifest); err != nil {
@@ -95,23 +110,39 @@ func (c *Client) Discover(ctx context.Context, endpoint, bearer string, timeout 
 	if err := ValidateManifest(manifest); err != nil {
 		return Manifest{}, err
 	}
+	span.SetAttributes(telemetry.IntAttribute("stormrelay.plugin.action_count", len(manifest.Actions)))
 	return manifest, nil
 }
 
-func (c *Client) Call(ctx context.Context, endpoint, action, bearer string, request ActionRequest, timeout time.Duration) (ActionResponse, error) {
+func (c *Client) Call(ctx context.Context, endpoint, action, bearer string, request ActionRequest, timeout time.Duration) (result ActionResponse, err error) {
+	callCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.plugin.call", trace.SpanKindClient,
+		telemetry.StringAttribute("stormrelay.plugin.protocol", ProtocolVersion),
+		telemetry.StringAttribute("stormrelay.plugin.action", action),
+	)
+	defer func() {
+		if err != nil {
+			telemetry.MarkSpanError(span)
+			telemetry.SetSpanOutcome(span, "failed")
+		} else {
+			telemetry.SetSpanOutcome(span, "succeeded")
+		}
+		span.End()
+	}()
+
 	if !identifierPattern.MatchString(action) {
 		return ActionResponse{}, fmt.Errorf("invalid plugin action %q", action)
 	}
 	urlValue := strings.TrimRight(endpoint, "/") + "/stormrelay/plugin/v1/actions/" + action
-	client, parsed, err := c.guard.Client(ctx, urlValue, timeout)
+	client, parsed, err := c.guard.Client(callCtx, urlValue, timeout)
 	if err != nil {
 		return ActionResponse{}, err
 	}
+	request.TraceParent = telemetry.TraceParentFromContext(callCtx)
 	body, err := json.Marshal(request)
 	if err != nil {
 		return ActionResponse{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(callCtx, http.MethodPost, parsed.String(), bytes.NewReader(body))
 	if err != nil {
 		return ActionResponse{}, err
 	}
@@ -119,11 +150,13 @@ func (c *Client) Call(ctx context.Context, endpoint, action, bearer string, requ
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
+	telemetry.InjectHTTPTrace(callCtx, req.Header)
 	resp, err := client.Do(req)
 	if err != nil {
 		return ActionResponse{}, fmt.Errorf("plugin action request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	span.SetAttributes(telemetry.IntAttribute("http.response.status_code", resp.StatusCode))
 	responseBody, err := readBounded(resp.Body, 1<<20)
 	if err != nil {
 		return ActionResponse{}, err
@@ -131,7 +164,6 @@ func (c *Client) Call(ctx context.Context, endpoint, action, bearer string, requ
 	if resp.StatusCode/100 != 2 {
 		return ActionResponse{}, fmt.Errorf("plugin action returned HTTP %d", resp.StatusCode)
 	}
-	var result ActionResponse
 	decoder := json.NewDecoder(bytes.NewReader(responseBody))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&result); err != nil {
