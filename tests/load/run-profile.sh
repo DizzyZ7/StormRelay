@@ -166,6 +166,7 @@ docker run --rm \
 
 echo "Running k6 image $K6_IMAGE"
 docker run --rm \
+  --user "$(id -u):$(id -g)" \
   --network host \
   --volume "$ROOT_DIR:/work:ro" \
   --volume "$OUTPUT_DIR:/results" \
