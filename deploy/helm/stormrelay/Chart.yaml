@@ -1,0 +1,23 @@
+apiVersion: v2
+name: stormrelay
+description: Self-hosted event correlation, incident response, and durable runbook automation
+home: https://github.com/DizzyZ7/StormRelay
+sources:
+  - https://github.com/DizzyZ7/StormRelay
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.29.0-0"
+keywords:
+  - incident-response
+  - sre
+  - devops
+  - security
+  - cloudevents
+  - runbooks
+maintainers:
+  - name: DizzyZ7
+    url: https://github.com/DizzyZ7
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/containsSecurityUpdates: "false"
