@@ -28,14 +28,15 @@ func TestCanonicalHMACReplayKeyNormalizesAcceptedRepresentations(t *testing.T) {
 
 func TestCanonicalHMACReplayKeyRejectsMalformedInputs(t *testing.T) {
 	valid := strings.Repeat("ab", 32)
-	for name, sourceID, timestamp, signature := range map[string][3]string{
+	tests := map[string][3]string{
 		"empty source":      {"", "1700000000", valid},
 		"invalid timestamp": {"source-id", "not-a-time", valid},
 		"invalid hex":       {"source-id", "1700000000", "zz"},
 		"short digest":      {"source-id", "1700000000", "ab"},
-	} {
+	}
+	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := CanonicalHMACReplayKey(sourceID, timestamp, signature); err == nil {
+			if _, err := CanonicalHMACReplayKey(values[0], values[1], values[2]); err == nil {
 				t.Fatal("expected error")
 			}
 		})
