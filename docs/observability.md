@@ -32,9 +32,24 @@ A value of `0` disables recording for new root traces while preserving propagati
 
 ## Trace continuity
 
-The HTTP server extracts W3C `traceparent` and `baggage` headers. If no valid parent exists, it creates a new server span. The active trace context is returned in the response and persisted in the normalized event.
+The HTTP server extracts W3C `traceparent` and `baggage` headers. If no valid parent exists, it creates a new server span. The active trace context is returned in the response.
 
-The worker extracts that event trace context after JetStream delivery and creates a consumer span. This connects the original webhook/API request to event processing and incident creation even though the work crosses an asynchronous queue.
+Before JetStream publication, StormRelay creates a producer span and stores that span's W3C `traceparent` in the normalized event envelope. The worker extracts it after durable delivery and creates a consumer span. Only `traceparent` crosses the queue boundary; baggage is deliberately not persisted in the event.
+
+The connected event path contains these operation boundaries:
+
+1. HTTP server ingress;
+2. JetStream producer publication;
+3. JetStream consumer processing;
+4. PostgreSQL event transaction;
+5. deduplication and duplicate audit handling;
+6. incident correlation and initial transition;
+7. policy evaluation;
+8. notification enqueueing;
+9. audit append and transaction commit;
+10. JetStream acknowledgement;
+11. notification claim, provider delivery, and durable completion;
+12. DLQ publication after poison-message exhaustion.
 
 Structured logs prefer the active OpenTelemetry trace ID and also include the StormRelay request ID where one exists.
 
@@ -52,24 +67,35 @@ Server and worker shutdown attempt to flush the provider with a bounded shutdown
 
 ## Data policy
 
-Trace attributes contain operational metadata only, such as route pattern, response status, event ID, event type, and event source.
+Trace attributes contain bounded operational metadata only. User-controlled event ID, type, and source values are represented by fixed-length SHA-256 digests rather than exported in clear text. Other attributes are limited to route patterns, response status, internal destination names, domain-state enums, booleans, and bounded counters.
 
 StormRelay does not attach these values to spans:
 
 - authorization headers or bearer tokens;
-- webhook, plugin, or service-account credentials;
+- webhook signatures, source credentials, plugin credentials, or API keys;
 - raw request or event payloads;
+- SQL statements or query parameters;
+- tenant identifiers;
+- source, plugin, or notification URLs;
+- email addresses or Telegram chat identifiers;
 - notification contents;
 - arbitrary URL query strings;
-- unbounded user-controlled labels.
+- unbounded user-controlled labels;
+- OpenTelemetry baggage persisted across JetStream.
 
-This boundary must be preserved when adding future instrumentation.
+This boundary must be preserved when adding future instrumentation. Tests assert that secret-looking URLs and token fragments do not appear in event span attributes.
 
 ## Existing metrics
 
 The existing Prometheus endpoint remains unchanged. Tracing does not replace metrics or readiness checks.
 
 Important metric families include event ingress/rejection/deduplication, event-processing latency, runbook duration/failures, plugin and notification failures, open incidents, PostgreSQL pool usage, and JetStream consumer lag.
+
+## Production collector guidance
+
+Keep the collector outside the StormRelay process boundary. Configure bounded queues, retry-on-failure, memory limiting, and backend authentication in the collector rather than embedding backend credentials in StormRelay. Use network policy so server and worker can reach only the collector OTLP endpoint, not the trace backend directly.
+
+Trace retention belongs to the selected backend. Match retention and sampling to the incident/audit retention policy, but do not treat traces as the authoritative audit record. Audit entries remain the durable security and compliance record.
 
 ## Troubleshooting
 
