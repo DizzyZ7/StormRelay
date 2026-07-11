@@ -60,7 +60,7 @@ func TestTracePipelineConfigurationIsBoundedAndWired(t *testing.T) {
 	compose := string(mustRead(t, "docker-compose.yml"))
 	for _, required := range []string{
 		"otel/opentelemetry-collector-contrib:0.156.0",
-		"grafana/tempo:3.0.2",
+		"grafana/tempo:2.8.2",
 		"./otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro",
 		"./tempo.yml:/etc/tempo/tempo.yml:ro",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4317",
