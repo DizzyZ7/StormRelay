@@ -113,13 +113,21 @@ func (s *Server) ingestWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, status, code, err.Error(), nil)
 		return
 	}
+
+	replayKey := ""
+	replayCommitted := false
 	if creds.Source.AuthMode == ingestion.AuthHMAC {
-		replayKey := sourceID + ":" + r.Header.Get("X-StormRelay-Timestamp") + ":" + r.Header.Get("X-StormRelay-Signature")
+		replayKey = sourceID + ":" + r.Header.Get("X-StormRelay-Timestamp") + ":" + r.Header.Get("X-StormRelay-Signature")
 		if !s.replay.Accept(replayKey, time.Now().Add(s.cfg.ReplayWindow), time.Now()) {
 			s.metrics.RejectedEvents.Add(1)
 			writeError(w, r, http.StatusConflict, "replay_rejected", "request was already accepted", nil)
 			return
 		}
+		defer func() {
+			if !replayCommitted {
+				s.replay.Release(replayKey)
+			}
+		}()
 	}
 	if creds.Source.AuthMode == ingestion.AuthBearer && strings.TrimSpace(r.Header.Get("Idempotency-Key")) == "" {
 		writeError(w, r, http.StatusBadRequest, "idempotency_key_required", "bearer-authenticated sources require Idempotency-Key for replay protection", nil)
@@ -145,6 +153,7 @@ func (s *Server) ingestWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusServiceUnavailable, "event_bus_unavailable", "event could not be durably accepted", nil)
 		return
 	}
+	replayCommitted = true
 	s.metrics.IngressEvents.Add(1)
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "event_id": event.ID, "request_id": telemetry.RequestID(r.Context())})
 }
