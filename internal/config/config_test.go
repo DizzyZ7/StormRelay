@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func setRequiredConfig(t *testing.T) {
+func setRequiredRedeliveryConfig(t *testing.T) {
 	t.Helper()
 	t.Setenv("STORMRELAY_MASTER_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	t.Setenv("STORMRELAY_BOOTSTRAP_API_KEY", "test-bootstrap-key")
@@ -19,7 +19,7 @@ func setRequiredConfig(t *testing.T) {
 }
 
 func TestLoadEventRedeliveryDefaults(t *testing.T) {
-	setRequiredConfig(t)
+	setRequiredRedeliveryConfig(t)
 	cfg, err := Load("test", "dev")
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestLoadRejectsInvalidEventRedeliveryPolicy(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			setRequiredConfig(t)
+			setRequiredRedeliveryConfig(t)
 			t.Setenv(test.key, test.value)
 			_, err := Load("test", "dev")
 			if err == nil || !strings.Contains(err.Error(), test.wantError) {
