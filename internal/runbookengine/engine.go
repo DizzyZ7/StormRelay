@@ -19,6 +19,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/runbooks"
 	"github.com/DizzyZ7/StormRelay/internal/storage"
 	"github.com/DizzyZ7/StormRelay/internal/telemetry"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const maxHTTPResponseBytes = 1 << 20
@@ -81,11 +82,51 @@ func (e *Engine) Run(ctx context.Context) error {
 				wg.Add(1)
 				go func() {
 					defer func() { <-sem; wg.Done() }()
-					e.execute(ctx, step)
+					e.executeTraced(ctx, step)
 				}()
 			}
 		}
 	}
+}
+
+func (e *Engine) executeTraced(parent context.Context, claimed storage.ClaimedStep) {
+	parent = telemetry.ContextWithTraceParent(parent, executionTraceParent(claimed.ExecutionInput))
+	stepCtx, span := telemetry.StartOperationSpan(parent, "stormrelay.runbook.step", trace.SpanKindConsumer,
+		telemetry.StringAttribute("stormrelay.runbook.step_type", claimed.Step.StepType),
+		telemetry.IntAttribute("stormrelay.runbook.attempt", claimed.Step.AttemptCount),
+		telemetry.BoolAttribute("stormrelay.runbook.rollback", claimed.Step.IsRollback),
+		telemetry.BoolAttribute("stormrelay.runbook.dry_run", claimed.DryRun),
+	)
+	e.execute(stepCtx, claimed)
+
+	outcome := "unknown"
+	execution, err := e.store.GetExecution(stepCtx, claimed.TenantID, claimed.Step.ExecutionID)
+	if err != nil {
+		telemetry.MarkSpanError(span)
+		outcome = "status_unavailable"
+	} else {
+		for _, step := range execution.Steps {
+			if step.ID == claimed.Step.ID {
+				outcome = step.Status
+				if step.Status == "failed" || step.Status == "ambiguous" {
+					telemetry.MarkSpanError(span)
+				}
+				break
+			}
+		}
+	}
+	telemetry.SetSpanOutcome(span, outcome)
+	span.End()
+}
+
+func executionTraceParent(input json.RawMessage) string {
+	var snapshot struct {
+		TraceParent string `json:"traceparent"`
+	}
+	if json.Unmarshal(input, &snapshot) != nil {
+		return ""
+	}
+	return snapshot.TraceParent
 }
 
 func (e *Engine) execute(parent context.Context, claimed storage.ClaimedStep) {
@@ -187,20 +228,34 @@ func (e *Engine) execute(parent context.Context, claimed storage.ClaimedStep) {
 	e.logger.Info("runbook step completed", "execution_id", claimed.Step.ExecutionID, "step_id", claimed.Step.ID, "step_key", claimed.Step.StepKey, "duration_ms", time.Since(started).Milliseconds())
 }
 
-func (e *Engine) executeHTTP(ctx context.Context, claimed storage.ClaimedStep, input runbooks.Input) (json.RawMessage, bool, error) {
-	client, safeURL, err := e.httpGuard.Client(ctx, input.URL, time.Until(deadlineOr(ctx, time.Now().Add(30*time.Second))))
-	if err != nil {
-		return nil, false, err
-	}
+func (e *Engine) executeHTTP(ctx context.Context, claimed storage.ClaimedStep, input runbooks.Input) (output json.RawMessage, ambiguous bool, err error) {
 	method := strings.ToUpper(strings.TrimSpace(input.Method))
 	if method == "" {
 		method = http.MethodPost
+	}
+	actionCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.runbook.http", trace.SpanKindClient,
+		telemetry.StringAttribute("http.request.method", method),
+		telemetry.BoolAttribute("stormrelay.runbook.idempotent", input.IdempotencyHeader != ""),
+	)
+	defer func() {
+		if err != nil {
+			telemetry.MarkSpanError(span)
+			telemetry.SetSpanOutcome(span, "failed")
+		} else {
+			telemetry.SetSpanOutcome(span, "succeeded")
+		}
+		span.End()
+	}()
+
+	client, safeURL, err := e.httpGuard.Client(actionCtx, input.URL, time.Until(deadlineOr(actionCtx, time.Now().Add(30*time.Second))))
+	if err != nil {
+		return nil, false, err
 	}
 	body, err := marshalOptional(input.Body)
 	if err != nil {
 		return nil, false, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, safeURL.String(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(actionCtx, method, safeURL.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, false, err
 	}
@@ -216,11 +271,13 @@ func (e *Engine) executeHTTP(ctx context.Context, claimed storage.ClaimedStep, i
 	req.Header.Set("X-StormRelay-Execution-ID", claimed.Step.ExecutionID)
 	req.Header.Set("X-StormRelay-Step-ID", claimed.Step.ID)
 	req.Header.Set("X-StormRelay-Correlation-ID", claimed.Step.CorrelationID)
+	telemetry.InjectHTTPTrace(actionCtx, req.Header)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, input.IdempotencyHeader == "", fmt.Errorf("HTTP action failed: %w", err)
 	}
 	defer resp.Body.Close()
+	span.SetAttributes(telemetry.IntAttribute("http.response.status_code", resp.StatusCode))
 	responseBody, err := readBounded(resp.Body, maxHTTPResponseBytes)
 	if err != nil {
 		return nil, input.IdempotencyHeader == "", err
@@ -250,6 +307,7 @@ func (e *Engine) executePlugin(ctx context.Context, claimed storage.ClaimedStep,
 		ExecutionID:     claimed.Step.ExecutionID,
 		StepID:          claimed.Step.ID,
 		RequestID:       requestID,
+		TraceParent:     telemetry.TraceParentFromContext(ctx),
 		Deadline:        deadlineOr(ctx, time.Now().Add(time.Duration(plugin.TimeoutSeconds)*time.Second)),
 		IdempotencyKey:  claimed.Step.IdempotencyKey,
 		Input:           payload,
@@ -319,10 +377,4 @@ func readBounded(reader io.Reader, max int64) ([]byte, error) {
 		return nil, fmt.Errorf("response exceeds %d bytes", max)
 	}
 	return data, nil
-}
-func deadlineOr(ctx context.Context, fallback time.Time) time.Time {
-	if deadline, ok := ctx.Deadline(); ok {
-		return deadline
-	}
-	return fallback
 }
