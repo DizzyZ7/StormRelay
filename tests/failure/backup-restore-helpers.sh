@@ -74,7 +74,10 @@ if postgres_exec env STORMRELAY_DATABASE_URL="$DATABASE_URL" STORMRELAY_RESTORE_
   exit 1
 fi
 
-psql_exec postgres "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'stormrelay' AND pid <> pg_backend_pid(); ALTER DATABASE stormrelay RENAME TO stormrelay_before_helper_restore; CREATE DATABASE stormrelay OWNER stormrelay;"
+# CREATE DATABASE cannot run in the same query transaction as ALTER DATABASE.
+psql_exec postgres "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'stormrelay' AND pid <> pg_backend_pid()"
+psql_exec postgres "ALTER DATABASE stormrelay RENAME TO stormrelay_before_helper_restore"
+psql_exec postgres "CREATE DATABASE stormrelay OWNER stormrelay"
 
 postgres_exec env STORMRELAY_DATABASE_URL="$DATABASE_URL" STORMRELAY_RESTORE_CONFIRM=YES sh /tmp/postgres-restore.sh "$ARCHIVE"
 
