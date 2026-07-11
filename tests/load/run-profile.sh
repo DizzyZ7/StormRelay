@@ -67,12 +67,24 @@ values = {
     'POLL_INTERVAL_MS': profile['timing']['poll_interval_milliseconds'],
     'GO_BENCHTIME': profile['go_benchmark']['benchtime'],
     'GO_BENCH_COUNT': profile['go_benchmark']['count'],
+    'POSTGRES_IMAGE': profile['dependencies']['postgres_image'],
+    'POSTGRES_MAX_CONNECTIONS': profile['dependencies']['postgres_max_connections'],
+    'NATS_IMAGE': profile['dependencies']['nats_image'],
+    'JETSTREAM_STORAGE': profile['dependencies']['jetstream_storage'],
     'K6_IMAGE': profile['dependencies']['k6_image'],
 }
 for key, value in values.items():
     print(f'{key}={shlex.quote(str(value))}')
 PY
 )"
+
+if [[ "$JETSTREAM_STORAGE" != "file" ]]; then
+  echo "unsupported benchmark JetStream storage mode: $JETSTREAM_STORAGE" >&2
+  exit 2
+fi
+export STORMRELAY_BENCHMARK_POSTGRES_IMAGE="$POSTGRES_IMAGE"
+export STORMRELAY_BENCHMARK_POSTGRES_MAX_CONNECTIONS="$POSTGRES_MAX_CONNECTIONS"
+export STORMRELAY_BENCHMARK_NATS_IMAGE="$NATS_IMAGE"
 
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
