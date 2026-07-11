@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/DizzyZ7/StormRelay/internal/storage"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Notifier struct {
@@ -34,7 +36,13 @@ func (n *Notifier) Deliver(ctx context.Context, d storage.Delivery) (string, err
 		return "", fmt.Errorf("unsupported notification channel kind %q", d.Kind)
 	}
 }
-func (n *Notifier) telegram(ctx context.Context, d storage.Delivery) (string, error) {
+func (n *Notifier) telegram(ctx context.Context, d storage.Delivery) (ref string, err error) {
+	requestCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.notification.provider_request", trace.SpanKindClient,
+		telemetry.StringAttribute("server.address", "api.telegram.org"),
+		telemetry.StringAttribute("http.request.method", http.MethodPost),
+	)
+	defer func() { telemetry.EndSafeSpan(span, err) }()
+
 	if n.telegramToken == "" {
 		return "", fmt.Errorf("telegram adapter is not configured")
 	}
@@ -66,16 +74,18 @@ func (n *Notifier) telegram(ctx context.Context, d storage.Delivery) (string, er
 	text += "\nAcknowledge: " + payload.AckURL
 	body, _ := json.Marshal(map[string]any{"chat_id": cfg.ChatID, "text": text, "disable_web_page_preview": cfg.DisablePreview})
 	url := "https://api.telegram.org/bot" + n.telegramToken + "/sendMessage"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	telemetry.InjectHTTPTrace(requestCtx, req.Header)
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("telegram request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	telemetry.SetSpanInt(span, "http.response.status_code", resp.StatusCode)
 	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("telegram returned HTTP %d", resp.StatusCode)
