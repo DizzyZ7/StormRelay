@@ -104,7 +104,13 @@ function executeEvent(data, record, previousCanonical, phase) {
   const canonical = duplicate
     ? previousCanonical
     : buildCanonical(data.runID, phase, source.id, __VU, __ITER);
-  const body = buildPayload(canonical);
+
+  // A duplicate models another authenticated delivery of the same source event,
+  // not a byte-for-byte replay of one signed HTTP request. Keeping X-Event-ID
+  // stable exercises durable event deduplication, while a per-delivery value
+  // gives HMAC replay protection a distinct signed request to admit.
+  const deliveryAttempt = `${phase}-${__VU}-${__ITER}`;
+  const body = buildPayload(canonical, deliveryAttempt);
   const timestamp = `${Math.floor(Date.now() / 1000)}`;
   const signature = crypto.hmac('sha256', source.secret, `${timestamp}.${body}`, 'hex');
   const startedAt = Date.now();
@@ -174,7 +180,7 @@ function buildCanonical(runID, phase, sourceID, vu, iteration) {
   };
 }
 
-function buildPayload(canonical) {
+function buildPayload(canonical, deliveryAttempt) {
   const payload = {
     type: 'com.stormrelay.benchmark',
     title: 'StormRelay benchmark alert',
@@ -184,6 +190,7 @@ function buildPayload(canonical) {
     resource: canonical.resource,
     alertname: 'BenchmarkAlert',
     labels: { benchmark: 'true' },
+    delivery_attempt: deliveryAttempt,
     padding: '',
   };
   const empty = JSON.stringify(payload);
