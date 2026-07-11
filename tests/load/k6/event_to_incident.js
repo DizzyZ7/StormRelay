@@ -44,8 +44,8 @@ export const options = {
   },
   thresholds: {
     stormrelay_errors: ['rate==0'],
-    stormrelay_http_acceptance_ms: ['count>0'],
-    stormrelay_event_to_incident_ms: ['count>0'],
+    stormrelay_accepted_events: ['count>0'],
+    stormrelay_durable_events: ['count>0'],
   },
 };
 
