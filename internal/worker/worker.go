@@ -18,6 +18,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/storage"
 	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -100,11 +101,22 @@ func (w *Worker) handleMessage(ctx context.Context, msg *nats.Msg) {
 		w.metrics.OpenIncidents.Store(max64(1, w.metrics.OpenIncidents.Load()))
 	}
 	w.metrics.ObserveEventLatency(time.Since(started))
+
+	ackCtx, ackSpan := telemetry.StartOperationSpan(messageCtx, "stormrelay.nats.ack", trace.SpanKindClient,
+		telemetry.StringAttribute("messaging.system", "nats"),
+		telemetry.StringAttribute("messaging.operation.name", "ack"),
+	)
+	_ = ackCtx
 	if err := msg.AckSync(); err != nil {
+		telemetry.MarkSpanError(ackSpan)
+		telemetry.SetSpanOutcome(ackSpan, "failed")
+		ackSpan.End()
 		telemetry.RecordSpanError(span, err)
 		telemetry.Log(messageCtx, w.logger, slog.LevelWarn, "event processed but acknowledgement failed", "event_id", event.ID, "error", err)
 		return
 	}
+	telemetry.SetSpanOutcome(ackSpan, "acknowledged")
+	ackSpan.End()
 	telemetry.Log(messageCtx, w.logger, slog.LevelInfo, "event processed", "event_id", event.ID, "normalized_event_id", result.EventID, "incident_id", result.Incident.ID, "duplicate", result.Duplicate, "duration_ms", time.Since(started).Milliseconds())
 }
 func (w *Worker) failMessage(ctx context.Context, msg *nats.Msg, err error) {
@@ -114,7 +126,7 @@ func (w *Worker) failMessage(ctx context.Context, msg *nats.Msg, err error) {
 		deliveries = metadata.NumDelivered
 	}
 	if deliveries >= uint64(w.eventMaxDeliveries()) {
-		if dlqErr := w.bus.PublishDLQ(msg, err.Error()); dlqErr != nil {
+		if dlqErr := w.bus.PublishDLQ(ctx, msg, err.Error()); dlqErr != nil {
 			telemetry.Log(ctx, w.logger, slog.LevelError, "publish DLQ failed", "error", dlqErr)
 			_ = msg.NakWithDelay(w.eventRetryMaxDelay())
 			return
