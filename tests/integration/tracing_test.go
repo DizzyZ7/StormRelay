@@ -112,15 +112,13 @@ func TestConnectedEventToNotificationTraceHasSafeAttributes(t *testing.T) {
 		"stormrelay.db.commit",
 		"stormrelay.nats.ack",
 		"stormrelay.notification.deliver",
+		"stormrelay.notification.complete",
 	}
-	spans := waitForSpanNames(t, recorder, required, 12*time.Second)
+	spans := waitForTraceSpanNames(t, recorder, rootTraceID, required, 12*time.Second)
 	byName := map[string]sdktrace.ReadOnlySpan{}
 	for _, span := range spans {
 		if _, exists := byName[span.Name()]; !exists {
 			byName[span.Name()] = span
-		}
-		if span.SpanContext().TraceID() != rootTraceID {
-			t.Fatalf("span %q trace=%s want=%s", span.Name(), span.SpanContext().TraceID(), rootTraceID)
 		}
 		assertSafeSpanData(t, span, secretMarker)
 	}
@@ -141,6 +139,7 @@ func TestConnectedEventToNotificationTraceHasSafeAttributes(t *testing.T) {
 	}
 	assertParent(t, byName, "stormrelay.nats.ack", byName["stormrelay.event.process"].SpanContext().SpanID())
 	assertParent(t, byName, "stormrelay.notification.deliver", byName["stormrelay.notification.enqueue"].SpanContext().SpanID())
+	assertParent(t, byName, "stormrelay.notification.complete", byName["stormrelay.notification.enqueue"].SpanContext().SpanID())
 }
 
 func installIntegrationSpanRecorder(t *testing.T) (*tracetest.SpanRecorder, func()) {
@@ -161,11 +160,11 @@ func installIntegrationSpanRecorder(t *testing.T) (*tracetest.SpanRecorder, func
 	}
 }
 
-func waitForSpanNames(t *testing.T, recorder *tracetest.SpanRecorder, required []string, timeout time.Duration) []sdktrace.ReadOnlySpan {
+func waitForTraceSpanNames(t *testing.T, recorder *tracetest.SpanRecorder, traceID trace.TraceID, required []string, timeout time.Duration) []sdktrace.ReadOnlySpan {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		spans := recorder.Ended()
+		spans := traceSpans(recorder.Ended(), traceID)
 		found := map[string]bool{}
 		for _, span := range spans {
 			found[span.Name()] = true
@@ -183,11 +182,21 @@ func waitForSpanNames(t *testing.T, recorder *tracetest.SpanRecorder, required [
 		time.Sleep(50 * time.Millisecond)
 	}
 	names := []string{}
-	for _, span := range recorder.Ended() {
+	for _, span := range traceSpans(recorder.Ended(), traceID) {
 		names = append(names, span.Name())
 	}
-	t.Fatalf("required spans were not exported; got %v", names)
+	t.Fatalf("required spans were not exported for trace %s; got %v", traceID, names)
 	return nil
+}
+
+func traceSpans(spans []sdktrace.ReadOnlySpan, traceID trace.TraceID) []sdktrace.ReadOnlySpan {
+	out := make([]sdktrace.ReadOnlySpan, 0, len(spans))
+	for _, span := range spans {
+		if span.SpanContext().TraceID() == traceID {
+			out = append(out, span)
+		}
+	}
+	return out
 }
 
 func assertParent(t *testing.T, spans map[string]sdktrace.ReadOnlySpan, child string, want trace.SpanID) {
