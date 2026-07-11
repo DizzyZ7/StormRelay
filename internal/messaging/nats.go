@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/DizzyZ7/StormRelay/internal/events"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const defaultMaxDeliveries = 5
@@ -61,8 +63,20 @@ func (b *Bus) Ready() error {
 	return err
 }
 func (b *Bus) PublishEvent(ctx context.Context, e events.Event, msgID string) error {
+	publishCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.nats.publish", trace.SpanKindProducer,
+		telemetry.StringAttribute("messaging.system", "nats"),
+		telemetry.StringAttribute("messaging.operation.name", "publish"),
+		telemetry.StringAttribute("messaging.destination.name", b.subject),
+	)
+	defer span.End()
+
+	// Continue the producer span in the persisted envelope so the worker consumer
+	// is a direct child of the actual JetStream publish operation.
+	e.TraceParent = telemetry.TraceParentFromContext(publishCtx)
 	data, err := json.Marshal(e)
 	if err != nil {
+		telemetry.MarkSpanError(span)
+		telemetry.SetSpanOutcome(span, "marshal_failed")
 		return err
 	}
 	msg := nats.NewMsg(b.subject)
@@ -70,13 +84,18 @@ func (b *Bus) PublishEvent(ctx context.Context, e events.Event, msgID string) er
 	msg.Header.Set(nats.MsgIdHdr, msgID)
 	msg.Header.Set("Content-Type", "application/json")
 	msg.Header.Set("X-StormRelay-Schema", events.SchemaVersion)
-	ack, err := b.js.PublishMsg(msg, nats.Context(ctx))
+	ack, err := b.js.PublishMsg(msg, nats.Context(publishCtx))
 	if err != nil {
+		telemetry.MarkSpanError(span)
+		telemetry.SetSpanOutcome(span, "publish_failed")
 		return fmt.Errorf("publish event: %w", err)
 	}
 	if ack == nil || ack.Stream != b.stream {
+		telemetry.MarkSpanError(span)
+		telemetry.SetSpanOutcome(span, "invalid_ack")
 		return fmt.Errorf("invalid JetStream publish acknowledgement")
 	}
+	telemetry.SetSpanOutcome(span, "accepted")
 	return nil
 }
 func (b *Bus) Subscription() (*nats.Subscription, error) {
@@ -116,15 +135,28 @@ func (b *Bus) reconcileConsumer(cfg *nats.ConsumerConfig) error {
 	_, err := b.js.UpdateConsumer(b.stream, cfg)
 	return err
 }
-func (b *Bus) PublishDLQ(original *nats.Msg, reason string) error {
+func (b *Bus) PublishDLQ(ctx context.Context, original *nats.Msg, reason string) error {
+	publishCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.nats.publish_dlq", trace.SpanKindProducer,
+		telemetry.StringAttribute("messaging.system", "nats"),
+		telemetry.StringAttribute("messaging.operation.name", "publish"),
+		telemetry.StringAttribute("messaging.destination.name", b.subject+".dlq"),
+	)
+	defer span.End()
+
 	msg := nats.NewMsg(b.subject + ".dlq")
 	msg.Data = original.Data
 	msg.Header.Set("X-StormRelay-Failure", truncate(reason, 500))
 	if metadata, err := original.Metadata(); err == nil {
 		msg.Header.Set("X-StormRelay-Deliveries", fmt.Sprint(metadata.NumDelivered))
 	}
-	_, err := b.js.PublishMsg(msg)
-	return err
+	_, err := b.js.PublishMsg(msg, nats.Context(publishCtx))
+	if err != nil {
+		telemetry.MarkSpanError(span)
+		telemetry.SetSpanOutcome(span, "publish_failed")
+		return err
+	}
+	telemetry.SetSpanOutcome(span, "accepted")
+	return nil
 }
 func (b *Bus) ConsumerLag() uint64 {
 	info, err := b.js.ConsumerInfo(b.stream, b.consumer)
