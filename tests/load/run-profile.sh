@@ -126,6 +126,12 @@ echo 'Starting clean end-to-end benchmark phase'
 wait_http 'http://localhost:8080/readyz' 'server'
 wait_http 'http://localhost:8081/readyz' 'worker'
 
+echo "Inspecting k6 scenario with image $K6_IMAGE"
+docker run --rm \
+  --volume "$ROOT_DIR:/work:ro" \
+  --workdir /work \
+  "$K6_IMAGE" inspect tests/load/k6/event_to_incident.js 2>&1 | tee "$OUTPUT_DIR/k6-inspect.log"
+
 echo "Running k6 image $K6_IMAGE"
 docker run --rm \
   --network host \
@@ -143,7 +149,7 @@ docker run --rm \
   --env STORMRELAY_INCIDENT_TIMEOUT_SECONDS="$INCIDENT_TIMEOUT_SECONDS" \
   --env STORMRELAY_POLL_INTERVAL_MS="$POLL_INTERVAL_MS" \
   --env STORMRELAY_K6_SUMMARY_PATH='/results/k6-summary.json' \
-  "$K6_IMAGE" run tests/load/k6/event_to_incident.js | tee "$OUTPUT_DIR/k6.log"
+  "$K6_IMAGE" run tests/load/k6/event_to_incident.js 2>&1 | tee "$OUTPUT_DIR/k6.log"
 
 python3 tests/load/capture_result.py \
   --profile "$PROFILE_PATH" \
