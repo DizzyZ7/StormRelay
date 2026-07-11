@@ -19,7 +19,7 @@ Implemented:
 - supported Go and Python API clients;
 - tenant-scoped service accounts and one-time hashed API keys;
 - backend-enforced, fail-closed RBAC and authorization audit;
-- guarded OIDC issuer/JWKS trust, signed bearer-token verification, and explicit subject mappings;
+- guarded OIDC issuer/JWKS trust, signed bearer-token verification, and explicit provider-subject mappings;
 - supported Go and Python process-plugin server SDKs;
 - production-client conformance runner, cross-language Docker compatibility gate, SDK example, and protocol compatibility policy.
 
@@ -44,9 +44,9 @@ Implemented foundation:
 - automated PostgreSQL backup/restore drill with data fingerprints, raw-payload hash verification, audit-trigger validation, restored credential checks, and JetStream redelivery deduplication coverage;
 - deterministic failure injection for PostgreSQL and NATS outages, concurrent duplicate delivery, poison messages and DLQ, runbook lease recovery, control-plane restart, plugin failures, and notification-provider failures;
 - configurable capped event redelivery with deterministic jitter and fail-closed HMAC replay reservations around the JetStream acknowledgement boundary;
-- reproducible Go/PostgreSQL/k6 benchmark harness with versioned profiles, separate acceptance and event-to-incident latency distributions, environment capture, schema-validated results, a lightweight CI correctness profile, and an explicit full profile.
+- explicit PostgreSQL schema v6-to-v7 upgrade drill with legacy encrypted credentials, service-account authentication, OIDC constraint verification, migration-history checks, and future-version fixture enforcement.
 
-Remaining: broader application spans and upgrade tests.
+Remaining: broader application spans and benchmark harness.
 
 ## Milestone 5 — Kubernetes and release
 
