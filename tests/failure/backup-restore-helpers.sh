@@ -32,15 +32,10 @@ psql_exec() {
 
 echo 'Starting isolated PostgreSQL helper contract environment'
 "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
-"${COMPOSE[@]}" up -d postgres
-
-for _ in $(seq 1 60); do
-  if postgres_exec pg_isready -U stormrelay -d stormrelay >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
-postgres_exec pg_isready -U stormrelay -d stormrelay >/dev/null
+# Waiting on a direct pg_isready probe can observe the temporary server used by
+# the image entrypoint during initdb, immediately before that server shuts down.
+# Compose health is evaluated after container startup and avoids that race.
+"${COMPOSE[@]}" up -d --wait --wait-timeout 60 postgres
 
 "${COMPOSE[@]}" cp scripts/postgres-backup.sh postgres:/tmp/postgres-backup.sh
 "${COMPOSE[@]}" cp scripts/postgres-restore.sh postgres:/tmp/postgres-restore.sh
