@@ -85,7 +85,19 @@ func (b *Bus) SubscriptionWithMaxDeliveries(maxDeliveries int) (*nats.Subscripti
 	if maxDeliveries < 2 {
 		maxDeliveries = defaultMaxDeliveries
 	}
-	return b.js.PullSubscribe(b.subject, b.consumer, nats.BindStream(b.stream), nats.ManualAck(), nats.AckExplicit(), nats.AckWait(30*time.Second), nats.MaxDeliver(maxDeliveries), nats.MaxAckPending(256))
+	cfg := &nats.ConsumerConfig{
+		Durable:       b.consumer,
+		AckPolicy:     nats.AckExplicitPolicy,
+		AckWait:       30 * time.Second,
+		MaxDeliver:    maxDeliveries,
+		MaxAckPending: 256,
+		FilterSubject: b.subject,
+		ReplayPolicy:  nats.ReplayInstantPolicy,
+	}
+	if _, err := b.js.AddConsumer(b.stream, &cfg); err != nil {
+		return nil, fmt.Errorf("reconcile JetStream consumer: %w", err)
+	}
+	return b.js.PullSubscribe(b.subject, b.consumer, nats.Bind(b.stream, b.consumer))
 }
 func (b *Bus) PublishDLQ(original *nats.Msg, reason string) error {
 	msg := nats.NewMsg(b.subject + ".dlq")
