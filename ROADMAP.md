@@ -44,9 +44,10 @@ Implemented foundation:
 - automated PostgreSQL backup/restore drill with data fingerprints, raw-payload hash verification, audit-trigger validation, restored credential checks, and JetStream redelivery deduplication coverage;
 - deterministic failure injection for PostgreSQL and NATS outages, concurrent duplicate delivery, poison messages and DLQ, runbook lease recovery, control-plane restart, plugin failures, and notification-provider failures;
 - configurable capped event redelivery with deterministic jitter and fail-closed HMAC replay reservations around the JetStream acknowledgement boundary;
-- explicit PostgreSQL schema v6-to-v7 upgrade drill with legacy encrypted credentials, service-account authentication, OIDC constraint verification, migration-history checks, and future-version fixture enforcement.
+- explicit PostgreSQL schema v6-to-v7 upgrade drill with legacy encrypted credentials, service-account authentication, OIDC constraint verification, migration-history checks, and future-version fixture enforcement;
+- reproducible Go/PostgreSQL/k6 benchmark harness with versioned profiles, separate acceptance and event-to-incident latency distributions, environment capture, schema-validated results, a lightweight CI correctness profile, and an explicit full profile.
 
-Remaining: broader application spans and benchmark harness.
+Remaining: broader application spans.
 
 ## Milestone 5 — Kubernetes and release
 
