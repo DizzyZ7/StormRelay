@@ -1,0 +1,31 @@
+{{- if .Values.podDisruptionBudget.server.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "stormrelay.fullname" . }}-server
+  labels:
+    {{- include "stormrelay.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.server.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "stormrelay.componentLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "server") | nindent 6 }}
+{{- end }}
+{{- if and .Values.podDisruptionBudget.server.enabled .Values.podDisruptionBudget.worker.enabled }}
+---
+{{- end }}
+{{- if .Values.podDisruptionBudget.worker.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "stormrelay.fullname" . }}-worker
+  labels:
+    {{- include "stormrelay.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.worker.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "stormrelay.componentLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "worker") | nindent 6 }}
+{{- end }}
