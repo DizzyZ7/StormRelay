@@ -1,0 +1,75 @@
+name: Helm Kind Smoke
+on:
+  pull_request:
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "Dockerfile"
+      - "deploy/helm/**"
+      - "deploy/kind/**"
+      - ".github/workflows/helm-kind.yml"
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "Dockerfile"
+      - "deploy/helm/**"
+      - "deploy/kind/**"
+      - ".github/workflows/helm-kind.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: helm-kind-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@78961f6f84d799cd858575bb931c3e51d3b13290
+        with:
+          go-version: 1.26.x
+          cache: false
+      - name: Install pinned kind
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install sigs.k8s.io/kind@v0.32.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install pinned Helm and kubectl
+        shell: bash
+        run: |
+          set -euo pipefail
+          HELM_VERSION=v4.2.3
+          KUBECTL_VERSION=v1.35.0
+          curl -fsSLO "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          curl -fsSLO "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum"
+          sha256sum --check "helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum"
+          tar -xzf "helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          sudo install -m 0755 linux-amd64/helm /usr/local/bin/helm
+          curl -fsSLo kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl -fsSLo kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"
+          printf '%s  kubectl\n' "$(cat kubectl.sha256)" | sha256sum --check
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          helm version
+          kubectl version --client
+      - name: Validate shell syntax
+        run: bash -n deploy/kind/smoke.sh
+      - name: Run Helm and kind smoke
+        shell: bash
+        run: |
+          set -o pipefail
+          bash deploy/kind/smoke.sh 2>&1 | tee helm-kind.log
+      - name: Upload sanitized diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: helm-kind-diagnostics
+          path: helm-kind.log
+          if-no-files-found: warn
+          retention-days: 1
