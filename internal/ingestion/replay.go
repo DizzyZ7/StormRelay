@@ -17,6 +17,10 @@ func NewReplayCache(max int) *ReplayCache {
 	}
 	return &ReplayCache{seen: map[string]time.Time{}, max: max}
 }
+
+// Accept reserves a replay key until expires. Call Release when processing fails
+// before the request has been durably accepted. A durable acceptance keeps the
+// reservation until its normal expiry so an identical signed request is rejected.
 func (c *ReplayCache) Accept(key string, expires time.Time, now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -38,4 +42,15 @@ func (c *ReplayCache) Accept(key string, expires time.Time, now time.Time) bool 
 	}
 	c.seen[key] = expires
 	return true
+}
+
+// Release removes a reservation after a request failed before its durable
+// acceptance boundary. It intentionally does nothing for an empty key.
+func (c *ReplayCache) Release(key string) {
+	if key == "" {
+		return
+	}
+	c.mu.Lock()
+	delete(c.seen, key)
+	c.mu.Unlock()
 }
