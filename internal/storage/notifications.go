@@ -9,6 +9,7 @@ import (
 
 	"github.com/DizzyZ7/StormRelay/internal/cryptox"
 	"github.com/DizzyZ7/StormRelay/internal/id"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -26,7 +27,16 @@ func (s *Store) enqueueNotifications(ctx context.Context, tx pgx.Tx, incident In
 	if err != nil {
 		return nil, err
 	}
-	payload, err := json.Marshal(map[string]any{"incident_id": incident.ID, "title": incident.Title, "severity": incident.Severity, "state": incident.State, "service": incident.Service, "environment": incident.Environment, "ack_base_url": baseURL})
+	payload, err := json.Marshal(map[string]any{
+		"incident_id":  incident.ID,
+		"title":        incident.Title,
+		"severity":     incident.Severity,
+		"state":        incident.State,
+		"service":      incident.Service,
+		"environment":  incident.Environment,
+		"ack_base_url": baseURL,
+		"traceparent":  telemetry.TraceParentFromContext(ctx),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +115,7 @@ func (s *Store) ClaimDeliveries(ctx context.Context, limit int) ([]Delivery, err
 		if decryptErr != nil {
 			return nil, decryptErr
 		}
-		x.Payload, err = addAckURL(x.Payload, string(plain))
+		x.Payload, x.TraceParent, err = prepareDeliveryPayload(x.Payload, string(plain))
 		if err != nil {
 			return nil, err
 		}
@@ -158,13 +168,21 @@ func truncate(value string, limit int) string {
 	return value
 }
 
-func addAckURL(payload json.RawMessage, token string) (json.RawMessage, error) {
+func prepareDeliveryPayload(payload json.RawMessage, token string) (json.RawMessage, string, error) {
 	var value map[string]any
 	if err := json.Unmarshal(payload, &value); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	base, _ := value["ack_base_url"].(string)
+	traceParent, _ := value["traceparent"].(string)
 	delete(value, "ack_base_url")
+	delete(value, "traceparent")
 	value["ack_url"] = strings.TrimRight(base, "/") + "/api/v1/ack/" + token
-	return json.Marshal(value)
+	clean, err := json.Marshal(value)
+	return clean, traceParent, err
+}
+
+func addAckURL(payload json.RawMessage, token string) (json.RawMessage, error) {
+	clean, _, err := prepareDeliveryPayload(payload, token)
+	return clean, err
 }
