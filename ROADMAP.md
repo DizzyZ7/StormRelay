@@ -41,9 +41,11 @@ Implemented foundation:
 - provisioned Grafana operations dashboard and datasource;
 - alert-specific diagnosis, mitigation, and closure runbooks;
 - static `promtool`/Compose/dashboard validation and live provisioning smoke tests;
-- automated PostgreSQL backup/restore drill with data fingerprints, raw-payload hash verification, audit-trigger validation, restored credential checks, and JetStream redelivery deduplication coverage.
+- automated PostgreSQL backup/restore drill with data fingerprints, raw-payload hash verification, audit-trigger validation, restored credential checks, and JetStream redelivery deduplication coverage;
+- deterministic failure injection for PostgreSQL and NATS outages, concurrent duplicate delivery, poison messages and DLQ, runbook lease recovery, control-plane restart, plugin failures, and notification-provider failures;
+- configurable capped event redelivery with deterministic jitter and fail-closed HMAC replay reservations around the JetStream acknowledgement boundary.
 
-Remaining: broader application spans, complete failure injection, benchmark harness, and upgrade tests.
+Remaining: broader application spans, benchmark harness, and upgrade tests.
 
 ## Milestone 5 — Kubernetes and release
 
