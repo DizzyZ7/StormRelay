@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 COMPOSE="docker compose -f deploy/compose/docker-compose.yml"
+TMP_DIR=$(mktemp -d)
 cleanup() {
   status=$?
   if [ "$status" -ne 0 ]; then
@@ -10,6 +11,7 @@ cleanup() {
     $COMPOSE logs --no-color >&2 || true
   fi
   $COMPOSE down -v >/dev/null 2>&1 || true
+  rm -rf "$TMP_DIR"
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -23,11 +25,13 @@ curl -sS --fail-with-body http://localhost:8081/readyz
 AUTH='Authorization: Bearer local-development-only-change-me'
 curl -sS --fail-with-body -H "$AUTH" http://localhost:8080/api/v1/version
 
-# Prometheus must load the checked StormRelay rules, and Grafana must provision the datasource/dashboard.
+# Collector, Tempo, Prometheus, and Grafana must all be usable, not merely started.
 for i in $(seq 1 60); do
-  if curl -fsS http://localhost:9090/-/ready >/dev/null && curl -fsS http://localhost:3000/api/health >/dev/null; then break; fi
+  if curl -fsS http://localhost:13133/ >/dev/null && curl -fsS http://localhost:3200/ready >/dev/null && curl -fsS http://localhost:9090/-/ready >/dev/null && curl -fsS http://localhost:3000/api/health >/dev/null; then break; fi
   sleep 2
 done
+curl -sS --fail-with-body http://localhost:13133/ >/dev/null
+curl -sS --fail-with-body http://localhost:3200/ready >/dev/null
 curl -sS --fail-with-body http://localhost:9090/-/ready >/dev/null
 curl -sS --fail-with-body http://localhost:3000/api/health | \
   python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["database"] == "ok"'
@@ -48,6 +52,45 @@ done
 printf '%s' "$DASHBOARD" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["dashboard"]["uid"] == "stormrelay-operations" and d["dashboard"]["title"] == "StormRelay Operations" and len(d["dashboard"]["panels"]) >= 8'
 curl -sS --fail-with-body --user admin:admin http://localhost:3000/api/datasources/uid/stormrelay-prometheus | \
   python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["uid"] == "stormrelay-prometheus" and d["url"] == "http://prometheus:9090"'
+curl -sS --fail-with-body --user admin:admin http://localhost:3000/api/datasources/uid/stormrelay-tempo | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["uid"] == "stormrelay-tempo" and d["url"] == "http://tempo:3200"'
+
+# Send a signed event and prove the response trace crosses the asynchronous event
+# transaction and delayed notification outbox before arriving in Tempo.
+SOURCE_JSON=$(curl -sS --fail-with-body -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"compose-trace-source","kind":"generic","auth_mode":"hmac-sha256"}' \
+  http://localhost:8080/api/v1/sources)
+SOURCE_ID=$(printf '%s' "$SOURCE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["source"]["id"])')
+SOURCE_SECRET=$(printf '%s' "$SOURCE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["credential"])')
+SECRET_MARKER='compose-trace-secret-must-not-export'
+EVENT_BODY='{"type":"com.stormrelay.compose.trace","title":"compose trace alert","severity":"critical","service":"compose-trace","environment":"smoke","resource":"trace-resource","labels":{"sensitive":"compose-trace-secret-must-not-export"}}'
+EVENT_TIMESTAMP=$(date +%s)
+EVENT_SIGNATURE=$(TIMESTAMP="$EVENT_TIMESTAMP" BODY="$EVENT_BODY" SECRET="$SOURCE_SECRET" python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["SECRET"].encode(), (os.environ["TIMESTAMP"]+"."+os.environ["BODY"]).encode(), hashlib.sha256).hexdigest())')
+EVENT_STATUS=$(curl -sS -D "$TMP_DIR/event-headers" -o "$TMP_DIR/event-response" -w '%{http_code}' \
+  -H "X-StormRelay-Timestamp: $EVENT_TIMESTAMP" \
+  -H "X-StormRelay-Signature: sha256=$EVENT_SIGNATURE" \
+  -H 'X-Event-ID: compose-trace-event' \
+  -H 'Content-Type: application/json' \
+  --data-binary "$EVENT_BODY" \
+  "http://localhost:8080/api/v1/webhooks/$SOURCE_ID")
+test "$EVENT_STATUS" = 202
+TRACE_PARENT=$(awk 'BEGIN{IGNORECASE=1} /^traceparent:/ {gsub("\r", "", $2); print $2}' "$TMP_DIR/event-headers" | tail -n 1)
+TRACE_ID=$(printf '%s' "$TRACE_PARENT" | awk -F- '{print $2}')
+test "${#TRACE_ID}" -eq 32
+TRACE_JSON=''
+for i in $(seq 1 60); do
+  if TRACE_JSON=$(curl -fsS "http://localhost:3200/api/traces/$TRACE_ID"); then
+    if printf '%s' "$TRACE_JSON" | grep -F 'stormrelay.notification.deliver' >/dev/null 2>&1; then break; fi
+  fi
+  sleep 1
+done
+for span_name in stormrelay.nats.publish stormrelay.event.process stormrelay.event.transaction stormrelay.event.persist_raw stormrelay.event.deduplicate stormrelay.incident.correlate stormrelay.policy.evaluate stormrelay.notification.enqueue stormrelay.notification.deliver; do
+  printf '%s' "$TRACE_JSON" | grep -F "$span_name" >/dev/null
+ done
+if printf '%s' "$TRACE_JSON" | grep -F "$SECRET_MARKER" >/dev/null; then
+  echo 'sensitive event marker leaked into exported trace' >&2
+  exit 1
+fi
 
 # Register and exercise the side-effect-free process plugin over the versioned protocol.
 PLUGIN=$(curl -sS --fail-with-body -H "$AUTH" -H 'Content-Type: application/json' \
