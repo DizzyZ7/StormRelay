@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/hex"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -81,26 +82,88 @@ func TestEventConsumerSpanContinuesIngressTrace(t *testing.T) {
 	}
 }
 
-func TestEventConsumerSpanBoundsUserControlledAttributes(t *testing.T) {
+func TestProducerTraceParentConnectsConsumer(t *testing.T) {
 	recorder, cleanup := installSpanRecorder(t)
 	defer cleanup()
 
-	longValue := strings.Repeat("я", maxSpanAttributeBytes)
-	invalidUTF8 := longValue + string([]byte{0xff, 0xfe})
-	_, span := StartEventConsumerSpan(context.Background(), "", invalidUTF8, invalidUTF8, invalidUTF8)
-	span.End()
+	rootCtx, root := otel.Tracer("test").Start(context.Background(), "ingress")
+	producerCtx, producer := StartEventProducerSpan(rootCtx, "stormrelay.events", "event-1", "security.alert")
+	traceParent := TraceParent(producerCtx)
+	if traceParent == "" {
+		t.Fatal("producer traceparent is empty")
+	}
+	producerSpanID := producer.SpanContext().SpanID()
+	producerTraceID := producer.SpanContext().TraceID()
+	producer.End()
+
+	_, consumer := StartEventConsumerSpan(context.Background(), traceParent, "event-1", "security.alert", "siem")
+	if consumer.SpanContext().TraceID() != producerTraceID {
+		t.Fatalf("consumer trace=%s producer trace=%s", consumer.SpanContext().TraceID(), producerTraceID)
+	}
+	consumer.End()
+	root.End()
+
+	var consumerFound bool
+	for _, span := range recorder.Ended() {
+		if span.Name() == "stormrelay.event.process" {
+			consumerFound = true
+			if span.Parent().SpanID() != producerSpanID {
+				t.Fatalf("consumer parent=%s producer=%s", span.Parent().SpanID(), producerSpanID)
+			}
+		}
+	}
+	if !consumerFound {
+		t.Fatal("consumer span was not recorded")
+	}
+}
+
+func TestEventSpansHashUserControlledAttributes(t *testing.T) {
+	recorder, cleanup := installSpanRecorder(t)
+	defer cleanup()
+
+	secret := "https://token@example.test/hook?signature=top-secret"
+	invalidUTF8 := secret + string([]byte{0xff, 0xfe})
+	_, producer := StartEventProducerSpan(context.Background(), "stormrelay.events", invalidUTF8, invalidUTF8)
+	producer.End()
+	_, consumer := StartEventConsumerSpan(context.Background(), "", invalidUTF8, invalidUTF8, invalidUTF8)
+	consumer.End()
+
 	spans := recorder.Ended()
-	if len(spans) != 1 {
+	if len(spans) != 2 {
 		t.Fatalf("ended spans=%d", len(spans))
 	}
-	for _, key := range []string{"messaging.message.id", "event.type", "event.source"} {
-		value := stringAttribute(spans[0].Attributes(), key)
-		if len(value) > maxSpanAttributeBytes {
-			t.Fatalf("%s length=%d", key, len(value))
+	for _, span := range spans {
+		for _, item := range span.Attributes() {
+			value := item.Value.Emit()
+			if strings.Contains(value, "top-secret") || strings.Contains(value, "example.test") {
+				t.Fatalf("span %q leaked user-controlled data in %s=%q", span.Name(), item.Key, value)
+			}
 		}
-		if !utf8.ValidString(value) {
-			t.Fatalf("%s is not valid UTF-8", key)
+		for _, key := range []string{"stormrelay.event.id_hash", "stormrelay.event.type_hash"} {
+			value := stringAttribute(span.Attributes(), key)
+			if len(value) != spanDigestBytes*2 {
+				t.Fatalf("span %q %s length=%d", span.Name(), key, len(value))
+			}
+			if _, err := hex.DecodeString(value); err != nil {
+				t.Fatalf("span %q %s is not hexadecimal: %v", span.Name(), key, err)
+			}
 		}
+	}
+	sourceHash := stringAttribute(spans[1].Attributes(), "stormrelay.event.source_hash")
+	if len(sourceHash) != spanDigestBytes*2 {
+		t.Fatalf("source hash length=%d", len(sourceHash))
+	}
+}
+
+func TestBoundedSpanAttributePreservesValidUTF8(t *testing.T) {
+	longValue := strings.Repeat("я", maxSpanAttributeBytes)
+	invalidUTF8 := longValue + string([]byte{0xff, 0xfe})
+	value := boundedSpanAttribute(invalidUTF8)
+	if len(value) > maxSpanAttributeBytes {
+		t.Fatalf("length=%d", len(value))
+	}
+	if !utf8.ValidString(value) {
+		t.Fatal("value is not valid UTF-8")
 	}
 }
 
