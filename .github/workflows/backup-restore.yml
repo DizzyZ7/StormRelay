@@ -1,0 +1,54 @@
+name: Backup Restore Drill
+on:
+  pull_request:
+    paths:
+      - "cmd/stormrelay-server/**"
+      - "cmd/stormrelay-worker/**"
+      - "internal/events/**"
+      - "internal/messaging/**"
+      - "internal/storage/**"
+      - "internal/worker/**"
+      - "deploy/compose/**"
+      - "tests/failure/backup-restore.sh"
+      - ".github/workflows/backup-restore.yml"
+      - "Makefile"
+  push:
+    branches: [main]
+    paths:
+      - "cmd/stormrelay-server/**"
+      - "cmd/stormrelay-worker/**"
+      - "internal/events/**"
+      - "internal/messaging/**"
+      - "internal/storage/**"
+      - "internal/worker/**"
+      - "deploy/compose/**"
+      - "tests/failure/backup-restore.sh"
+      - ".github/workflows/backup-restore.yml"
+      - "Makefile"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: backup-restore-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  drill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
+        with:
+          persist-credentials: false
+      - name: Run PostgreSQL backup and restore drill
+        shell: bash
+        run: |
+          set -o pipefail
+          ./tests/failure/backup-restore.sh 2>&1 | tee backup-restore.log
+      - name: Upload sanitized drill diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: backup-restore-diagnostics
+          path: backup-restore.log
+          if-no-files-found: warn
+          retention-days: 1
