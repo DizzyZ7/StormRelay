@@ -93,6 +93,7 @@ type Delivery struct {
 	Payload                                              json.RawMessage
 	Config                                               json.RawMessage
 	Attempt                                              int
+	TraceParent                                          string `json:"-"`
 }
 type AuditEntry struct {
 	ID           string          `json:"id"`
