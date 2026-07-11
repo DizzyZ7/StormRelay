@@ -2,7 +2,7 @@ SHELL := /bin/sh
 GO ?= go
 COMPOSE ?= docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: fmt test test-race vet build demo-up demo-down smoke backup-restore-drill failure-test dependency-outage-drill failure
+.PHONY: fmt test test-race vet build demo-up demo-down smoke backup-restore-drill failure-test dependency-outage-drill failure benchmark-correctness benchmark-full benchmark-validate
 fmt:
 	@test -z "$$($(GO) fmt ./...)"
 
@@ -41,3 +41,12 @@ dependency-outage-drill:
 
 failure:
 	bash ./tests/failure/run.sh
+
+benchmark-correctness:
+	bash ./tests/load/run-profile.sh correctness
+
+benchmark-full:
+	bash ./tests/load/run-profile.sh full
+
+benchmark-validate:
+	python3 ./tests/load/validate_result.py ./tests/load/result.schema.json $(RESULT)
