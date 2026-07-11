@@ -25,6 +25,28 @@ services:
       - "8222:8222"
     networks: [backend]
 
+  tempo:
+    image: grafana/tempo:3.0.2
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks: [backend]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.156.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "13133:13133"
+    depends_on:
+      - tempo
+    networks: [backend]
+
   server:
     build:
       context: ../..
@@ -41,12 +63,17 @@ services:
       STORMRELAY_RUNBOOK_CONCURRENCY: "4"
       STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS: echo-plugin
       STORMRELAY_PLUGIN_ALLOWED_HOSTS: echo-plugin
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4317
+      STORMRELAY_OTEL_TRACE_SAMPLE_RATIO: "1.0"
+      STORMRELAY_OTEL_EXPORT_TIMEOUT: 5s
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       nats:
+        condition: service_started
+      otel-collector:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/readyz"]
@@ -70,6 +97,8 @@ services:
       postgres:
         condition: service_healthy
       nats:
+        condition: service_started
+      otel-collector:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8081/readyz"]
@@ -110,12 +139,13 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "3000:3000"
-    depends_on: [prometheus]
+    depends_on: [prometheus, tempo]
     networks: [backend]
 
 volumes:
   postgres-data:
   nats-data:
+  tempo-data:
 networks:
   backend:
     driver: bridge
