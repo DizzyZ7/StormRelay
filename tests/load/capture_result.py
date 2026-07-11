@@ -22,6 +22,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--commit-sha")
     parser.add_argument("--base-url", default="http://localhost:8080")
+    parser.add_argument(
+        "--database-target", default="postgresql://localhost:55432/stormrelay"
+    )
+    parser.add_argument("--nats-target", default="nats://localhost:4222")
     return parser.parse_args()
 
 
@@ -193,8 +197,8 @@ def main() -> int:
             },
             "configuration": {
                 "base_url": args.base_url,
-                "database_target": "postgresql://localhost:5432/stormrelay",
-                "nats_target": "nats://localhost:4222",
+                "database_target": args.database_target,
+                "nats_target": args.nats_target,
             },
             "phase": {
                 "cold_start": False,
@@ -227,7 +231,9 @@ def main() -> int:
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)
         temporary = args.output.with_suffix(args.output.suffix + ".tmp")
-        temporary.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         temporary.replace(args.output)
         print(args.output)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
