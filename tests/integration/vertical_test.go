@@ -18,6 +18,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/messaging"
 	"github.com/DizzyZ7/StormRelay/internal/plugins"
 	"github.com/DizzyZ7/StormRelay/internal/storage"
+	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go"
 )
 
@@ -121,6 +122,29 @@ func TestConcurrentDuplicateProcessingCreatesOneCanonicalEvent(t *testing.T) {
 	}
 	if count != workers-1 {
 		t.Fatalf("stored duplicate count=%d", count)
+	}
+
+	db, err := pgx.Connect(context.Background(), databaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close(context.Background()) })
+	var duplicateRows, duplicateAudits, rawRows, canonicalRows int
+	err = db.QueryRow(context.Background(), `
+		SELECT
+			(SELECT count(*) FROM event_duplicates WHERE canonical_event_id=$1::uuid),
+			(SELECT count(*) FROM audit_entries WHERE action='event.duplicate' AND resource_id=$3),
+			(SELECT count(*) FROM raw_events WHERE source_id=$2::uuid),
+			(SELECT count(*) FROM normalized_events WHERE source_id=$2::uuid AND source_event_id='same-upstream-id')
+	`, eventID, source.Source.ID, eventID).Scan(&duplicateRows, &duplicateAudits, &rawRows, &canonicalRows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicateRows != workers-1 || duplicateAudits != workers-1 {
+		t.Fatalf("duplicate rows=%d audit rows=%d, want %d", duplicateRows, duplicateAudits, workers-1)
+	}
+	if rawRows != workers || canonicalRows != 1 {
+		t.Fatalf("raw rows=%d canonical rows=%d, want raw=%d canonical=1", rawRows, canonicalRows, workers)
 	}
 }
 

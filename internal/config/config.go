@@ -29,6 +29,9 @@ type Config struct {
 	DedupeWindow                time.Duration
 	CorrelationWindow           time.Duration
 	WorkerConcurrency           int
+	EventMaxDeliveries          int
+	EventRetryBaseDelay         time.Duration
+	EventRetryMaxDelay          time.Duration
 	RunbookConcurrency          int
 	AutoMigrate                 bool
 	TelegramToken               string
@@ -50,6 +53,14 @@ func Load(serviceName, version string) (Config, error) {
 		return Config{}, err
 	}
 	traceExportTimeout, err := envDurationStrict("STORMRELAY_OTEL_EXPORT_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	eventRetryBaseDelay, err := envDurationStrict("STORMRELAY_EVENT_RETRY_BASE_DELAY", time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	eventRetryMaxDelay, err := envDurationStrict("STORMRELAY_EVENT_RETRY_MAX_DELAY", 30*time.Second)
 	if err != nil {
 		return Config{}, err
 	}
@@ -76,6 +87,9 @@ func Load(serviceName, version string) (Config, error) {
 		DedupeWindow:                envDuration("STORMRELAY_DEDUPE_WINDOW", 15*time.Minute),
 		CorrelationWindow:           envDuration("STORMRELAY_CORRELATION_WINDOW", 30*time.Minute),
 		WorkerConcurrency:           envInt("STORMRELAY_WORKER_CONCURRENCY", 8),
+		EventMaxDeliveries:          envInt("STORMRELAY_EVENT_MAX_DELIVERIES", 5),
+		EventRetryBaseDelay:         eventRetryBaseDelay,
+		EventRetryMaxDelay:          eventRetryMaxDelay,
 		RunbookConcurrency:          envInt("STORMRELAY_RUNBOOK_CONCURRENCY", 4),
 		AutoMigrate:                 envBool("STORMRELAY_AUTO_MIGRATE", true),
 		TelegramToken:               os.Getenv("STORMRELAY_TELEGRAM_BOT_TOKEN"),
@@ -91,6 +105,15 @@ func Load(serviceName, version string) (Config, error) {
 	}
 	if cfg.WorkerConcurrency < 1 || cfg.WorkerConcurrency > 128 {
 		return Config{}, fmt.Errorf("worker concurrency must be between 1 and 128")
+	}
+	if cfg.EventMaxDeliveries < 2 || cfg.EventMaxDeliveries > 100 {
+		return Config{}, fmt.Errorf("STORMRELAY_EVENT_MAX_DELIVERIES must be between 2 and 100")
+	}
+	if cfg.EventRetryBaseDelay <= 0 || cfg.EventRetryBaseDelay > time.Minute {
+		return Config{}, fmt.Errorf("STORMRELAY_EVENT_RETRY_BASE_DELAY must be greater than zero and at most one minute")
+	}
+	if cfg.EventRetryMaxDelay < cfg.EventRetryBaseDelay || cfg.EventRetryMaxDelay > 15*time.Minute {
+		return Config{}, fmt.Errorf("STORMRELAY_EVENT_RETRY_MAX_DELAY must be at least the base delay and at most fifteen minutes")
 	}
 	if cfg.RunbookConcurrency < 1 || cfg.RunbookConcurrency > 64 {
 		return Config{}, fmt.Errorf("runbook concurrency must be between 1 and 64")

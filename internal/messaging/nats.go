@@ -3,12 +3,15 @@ package messaging
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/DizzyZ7/StormRelay/internal/events"
 	"github.com/nats-io/nats.go"
 )
+
+const defaultMaxDeliveries = 5
 
 type Bus struct {
 	nc                        *nats.Conn
@@ -77,7 +80,41 @@ func (b *Bus) PublishEvent(ctx context.Context, e events.Event, msgID string) er
 	return nil
 }
 func (b *Bus) Subscription() (*nats.Subscription, error) {
-	return b.js.PullSubscribe(b.subject, b.consumer, nats.BindStream(b.stream), nats.ManualAck(), nats.AckExplicit(), nats.AckWait(30*time.Second), nats.MaxDeliver(5), nats.MaxAckPending(256))
+	return b.SubscriptionWithMaxDeliveries(defaultMaxDeliveries)
+}
+func (b *Bus) SubscriptionWithMaxDeliveries(maxDeliveries int) (*nats.Subscription, error) {
+	if maxDeliveries < 2 {
+		maxDeliveries = defaultMaxDeliveries
+	}
+	cfg := &nats.ConsumerConfig{
+		Durable:       b.consumer,
+		AckPolicy:     nats.AckExplicitPolicy,
+		AckWait:       30 * time.Second,
+		MaxDeliver:    maxDeliveries,
+		MaxAckPending: 256,
+		FilterSubject: b.subject,
+		ReplayPolicy:  nats.ReplayInstantPolicy,
+	}
+	if err := b.reconcileConsumer(cfg); err != nil {
+		return nil, fmt.Errorf("reconcile JetStream consumer: %w", err)
+	}
+	return b.js.PullSubscribe(b.subject, b.consumer, nats.Bind(b.stream, b.consumer))
+}
+func (b *Bus) reconcileConsumer(cfg *nats.ConsumerConfig) error {
+	if _, err := b.js.UpdateConsumer(b.stream, cfg); err == nil {
+		return nil
+	} else if !errors.Is(err, nats.ErrConsumerNotFound) {
+		return err
+	}
+	if _, err := b.js.AddConsumer(b.stream, cfg); err == nil {
+		return nil
+	} else if !errors.Is(err, nats.ErrConsumerNameAlreadyInUse) {
+		return err
+	}
+	// Another worker may create the durable between the failed update and add.
+	// Re-run the update so all replicas converge on the configured retry policy.
+	_, err := b.js.UpdateConsumer(b.stream, cfg)
+	return err
 }
 func (b *Bus) PublishDLQ(original *nats.Msg, reason string) error {
 	msg := nats.NewMsg(b.subject + ".dlq")

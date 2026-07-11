@@ -2,7 +2,7 @@ SHELL := /bin/sh
 GO ?= go
 COMPOSE ?= docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: fmt test test-race vet build demo-up demo-down smoke backup-restore-drill
+.PHONY: fmt test test-race vet build demo-up demo-down smoke backup-restore-drill failure-test dependency-outage-drill failure
 fmt:
 	@test -z "$$($(GO) fmt ./...)"
 
@@ -32,3 +32,12 @@ smoke:
 
 backup-restore-drill:
 	bash ./tests/failure/backup-restore.sh
+
+failure-test:
+	$(GO) test -tags=failure -count=1 -v ./tests/failure
+
+dependency-outage-drill:
+	bash ./tests/failure/dependency-outages.sh
+
+failure:
+	bash ./tests/failure/run.sh

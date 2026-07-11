@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -50,15 +51,19 @@ type ActionResponse struct {
 	Error           string          `json:"error,omitempty"`
 }
 
+type clientGuard interface {
+	Client(context.Context, string, time.Duration) (*http.Client, *url.URL, error)
+}
+
 type Client struct {
-	guard *networkguard.Guard
+	guard clientGuard
 }
 
 func NewClient(allowedHosts []string) *Client { return &Client{guard: networkguard.New(allowedHosts)} }
 
 func (c *Client) Discover(ctx context.Context, endpoint, bearer string, timeout time.Duration) (Manifest, error) {
-	url := strings.TrimRight(endpoint, "/") + "/stormrelay/plugin/v1/manifest"
-	client, parsed, err := c.guard.Client(ctx, url, timeout)
+	urlValue := strings.TrimRight(endpoint, "/") + "/stormrelay/plugin/v1/manifest"
+	client, parsed, err := c.guard.Client(ctx, urlValue, timeout)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -97,8 +102,8 @@ func (c *Client) Call(ctx context.Context, endpoint, action, bearer string, requ
 	if !identifierPattern.MatchString(action) {
 		return ActionResponse{}, fmt.Errorf("invalid plugin action %q", action)
 	}
-	url := strings.TrimRight(endpoint, "/") + "/stormrelay/plugin/v1/actions/" + action
-	client, parsed, err := c.guard.Client(ctx, url, timeout)
+	urlValue := strings.TrimRight(endpoint, "/") + "/stormrelay/plugin/v1/actions/" + action
+	client, parsed, err := c.guard.Client(ctx, urlValue, timeout)
 	if err != nil {
 		return ActionResponse{}, err
 	}
