@@ -86,6 +86,14 @@ export STORMRELAY_BENCHMARK_POSTGRES_IMAGE="$POSTGRES_IMAGE"
 export STORMRELAY_BENCHMARK_POSTGRES_MAX_CONNECTIONS="$POSTGRES_MAX_CONNECTIONS"
 export STORMRELAY_BENCHMARK_NATS_IMAGE="$NATS_IMAGE"
 
+configured_images=$("${COMPOSE[@]}" config --images)
+for required_image in "$POSTGRES_IMAGE" "$NATS_IMAGE"; do
+  if ! grep -Fqx "$required_image" <<<"$configured_images"; then
+    echo "benchmark profile image was not applied to Compose: $required_image" >&2
+    exit 2
+  fi
+done
+
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
@@ -100,6 +108,16 @@ wait_http() {
   done
   echo "$label did not become ready: $url" >&2
   return 1
+}
+
+assert_postgres_profile() {
+  local actual
+  actual=$("${COMPOSE[@]}" exec -T postgres \
+    psql -U stormrelay -d stormrelay -Atqc 'SHOW max_connections')
+  if [[ "$actual" != "$POSTGRES_MAX_CONNECTIONS" ]]; then
+    echo "PostgreSQL max_connections mismatch: expected $POSTGRES_MAX_CONNECTIONS, got $actual" >&2
+    return 1
+  fi
 }
 
 echo "Running StormRelay benchmark profile: $PROFILE_NAME"
@@ -119,6 +137,7 @@ go test \
 # database polluted by the benchmark that preceded it.
 echo 'Starting isolated PostgreSQL transaction benchmark phase'
 "${COMPOSE[@]}" up -d --wait --wait-timeout 60 postgres
+assert_postgres_profile
 printf '\n# StormRelay PostgreSQL processing benchmarks\n' >>"$GO_BENCHMARK_PATH"
 STORMRELAY_TEST_DATABASE_URL="$DATABASE_URL" \
   go test \
@@ -137,6 +156,7 @@ echo 'Starting clean end-to-end benchmark phase'
 "${COMPOSE[@]}" up --build -d postgres nats server worker
 wait_http 'http://localhost:8080/readyz' 'server'
 wait_http 'http://localhost:8081/readyz' 'worker'
+assert_postgres_profile
 
 echo "Inspecting k6 scenario with image $K6_IMAGE"
 docker run --rm \
