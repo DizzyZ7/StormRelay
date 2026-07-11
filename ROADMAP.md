@@ -27,27 +27,21 @@ Interactive browser-session flows remain optional future product work. StormRela
 
 ## Milestone 4 — production operations
 
-In progress.
-
-Implemented foundation:
+Implemented:
 
 - optional OpenTelemetry trace provider and OTLP/gRPC exporter;
-- W3C HTTP-to-event-to-worker trace propagation;
-- parent-based ratio sampling, bounded batching, and graceful shutdown flush;
-- request/trace-correlated structured logs;
-- real in-process OTLP receiver and propagation tests;
-- existing Prometheus metrics retained unchanged;
-- provisioned Prometheus alert rules for availability, pipeline, capacity, and integration failures;
-- provisioned Grafana operations dashboard and datasource;
+- connected W3C HTTP, JetStream, PostgreSQL, correlation, policy, notification, runbook, and process-plugin traces;
+- persisted `traceparent` continuity across notification outbox and durable runbook execution without persisted baggage;
+- parent-based ratio sampling, bounded SDK batching, graceful shutdown flush, and safe external-error spans;
+- provisioned OpenTelemetry Collector, Tempo trace backend, Grafana trace datasource, Prometheus alert rules, and operations dashboard for the demo environment;
+- request/trace-correlated structured logs and low-cardinality Prometheus metrics;
 - alert-specific diagnosis, mitigation, and closure runbooks;
-- static `promtool`/Compose/dashboard validation and live provisioning smoke tests;
+- static observability configuration checks, in-process span contracts, PostgreSQL/NATS parent-child tests, and live Tempo Compose smoke tests;
 - automated PostgreSQL backup/restore drill with data fingerprints, raw-payload hash verification, audit-trigger validation, restored credential checks, and JetStream redelivery deduplication coverage;
 - deterministic failure injection for PostgreSQL and NATS outages, concurrent duplicate delivery, poison messages and DLQ, runbook lease recovery, control-plane restart, plugin failures, and notification-provider failures;
 - configurable capped event redelivery with deterministic jitter and fail-closed HMAC replay reservations around the JetStream acknowledgement boundary;
 - explicit PostgreSQL schema v6-to-v7 upgrade drill with legacy encrypted credentials, service-account authentication, OIDC constraint verification, migration-history checks, and future-version fixture enforcement;
 - reproducible Go/PostgreSQL/k6 benchmark harness with versioned profiles, separate acceptance and event-to-incident latency distributions, environment capture, schema-validated results, a lightweight CI correctness profile, and an explicit full profile.
-
-Remaining: broader application spans.
 
 ## Milestone 5 — Kubernetes and release
 

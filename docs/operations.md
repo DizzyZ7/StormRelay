@@ -37,7 +37,9 @@ The development Compose stack automatically provisions:
 
 - Prometheus at `http://localhost:9090`;
 - Grafana at `http://localhost:3000`;
-- the `StormRelay Prometheus` datasource;
+- Tempo at `http://localhost:3200`;
+- OpenTelemetry Collector OTLP/gRPC at `localhost:4317` and health at `localhost:13133`;
+- the `StormRelay Prometheus` and `StormRelay Tempo` datasources;
 - the `StormRelay Operations` dashboard in the `StormRelay` folder;
 - availability, pipeline, capacity, and integration-failure alert rules.
 
@@ -51,7 +53,23 @@ Every rule links to a dedicated procedure in `docs/alert-runbooks.md`. Prometheu
 
 ## Distributed tracing
 
-Optional OTLP/gRPC tracing connects inbound HTTP requests to persisted events and worker consumer spans. See `docs/observability.md` for collector configuration, sampling, propagation, shutdown behavior, and the trace data policy.
+Optional OTLP/gRPC tracing connects inbound HTTP requests to JetStream publication and consumption, PostgreSQL event transactions, deduplication, correlation, policy decisions, notification outbox delivery, runbook attempts, HTTP actions, and process-plugin calls. Only W3C `traceparent` is persisted across asynchronous boundaries; baggage is not persisted.
+
+Production configuration requires the same collector endpoint on server and worker:
+
+```bash
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otel-collector.example:4317
+STORMRELAY_OTEL_TRACE_SAMPLE_RATIO=0.10
+STORMRELAY_OTEL_EXPORT_TIMEOUT=10s
+```
+
+Keep the collector outside the StormRelay process boundary. Restrict server and worker egress to the collector, and collector egress to the selected backend. Configure backend authentication, TLS, retry, memory limiting, and storage credentials in the collector rather than in StormRelay.
+
+The Compose stack samples every trace and retains local Tempo blocks for 24 hours. Those settings are for demonstration only. Production sampling and retention must be based on measured event volume, investigation requirements, privacy policy, and storage cost. Trace access remains operationally sensitive even though StormRelay excludes payloads, credentials, provider error bodies, and user identifiers.
+
+Use the `traceparent` returned in an API response to query the exact trace. Traces are diagnostic evidence, not the authoritative audit record; append-only PostgreSQL audit entries remain the security and compliance source of truth.
+
+See `docs/observability.md` for the complete span map, exporter bounds, data policy, live verification, and troubleshooting procedure.
 
 ## Backup and restore
 

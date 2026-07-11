@@ -153,19 +153,20 @@ func (w *Worker) deliveryLoop(ctx context.Context) {
 				continue
 			}
 			for _, delivery := range deliveries {
-				deliveryCtx, deliverySpan := telemetry.StartNotificationSpan(ctx, "deliver", delivery.Kind)
+				parentCtx := telemetry.ContextWithTraceParent(ctx, delivery.TraceParent)
+				deliveryCtx, deliverySpan := telemetry.StartNotificationSpan(parentCtx, "deliver", delivery.Kind)
 				telemetry.SetSpanInt(deliverySpan, "stormrelay.notification.attempt", delivery.Attempt)
 				ref, deliverErr := w.notifier.Deliver(deliveryCtx, delivery)
 				completeCtx, completeSpan := telemetry.StartDatabaseSpan(deliveryCtx, "complete_delivery")
 				completeErr := w.store.CompleteDelivery(completeCtx, delivery.ID, ref, deliverErr)
 				telemetry.EndSpan(completeSpan, completeErr)
-				telemetry.EndSpan(deliverySpan, errors.Join(deliverErr, completeErr))
+				telemetry.EndSafeSpan(deliverySpan, errors.Join(deliverErr, completeErr))
 				if completeErr != nil {
-					telemetry.Log(ctx, w.logger, slog.LevelError, "update delivery failed", "delivery_id", delivery.ID, "error", completeErr)
+					telemetry.Log(parentCtx, w.logger, slog.LevelError, "update delivery failed", "delivery_id", delivery.ID, "error", completeErr)
 				}
 				if deliverErr != nil {
 					w.metrics.NotificationFailures.Add(1)
-					telemetry.Log(ctx, w.logger, slog.LevelWarn, "notification delivery failed", "delivery_id", delivery.ID, "kind", delivery.Kind, "error", sanitize(deliverErr.Error()))
+					telemetry.Log(parentCtx, w.logger, slog.LevelWarn, "notification delivery failed", "delivery_id", delivery.ID, "kind", delivery.Kind, "error", sanitize(deliverErr.Error()))
 				}
 			}
 		}

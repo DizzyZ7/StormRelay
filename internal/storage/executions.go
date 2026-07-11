@@ -7,6 +7,7 @@ import (
 
 	"github.com/DizzyZ7/StormRelay/internal/id"
 	"github.com/DizzyZ7/StormRelay/internal/runbooks"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -45,7 +46,13 @@ func (s *Store) StartExecution(ctx context.Context, in StartExecutionInput) (Exe
 	if err != nil {
 		return Execution{}, err
 	}
-	inputSnapshot, err := json.Marshal(map[string]any{"incident": incident, "parameters": in.Parameters, "runbook_key": in.RunbookKey, "runbook_version": version})
+	inputSnapshot, err := json.Marshal(map[string]any{
+		"incident":        incident,
+		"parameters":      in.Parameters,
+		"runbook_key":     in.RunbookKey,
+		"runbook_version": version,
+		"traceparent":     telemetry.TraceParent(ctx),
+	})
 	if err != nil {
 		return Execution{}, err
 	}
