@@ -1,0 +1,4 @@
+services:
+  postgres:
+    ports:
+      - "${STORMRELAY_BENCHMARK_POSTGRES_PORT:-55432}:5432"
