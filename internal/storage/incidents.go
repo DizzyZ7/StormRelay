@@ -8,7 +8,9 @@ import (
 
 	"github.com/DizzyZ7/StormRelay/internal/id"
 	"github.com/DizzyZ7/StormRelay/internal/incidents"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (s *Store) ListIncidents(ctx context.Context, f IncidentFilter) ([]Incident, error) {
@@ -76,20 +78,35 @@ type TransitionInput struct {
 	ActorType, ActorID, Reason, RequestID, TraceID string
 }
 
-func (s *Store) TransitionIncident(ctx context.Context, in TransitionInput) (Incident, error) {
-	tx, err := s.pool.Begin(ctx)
+func (s *Store) TransitionIncident(ctx context.Context, in TransitionInput) (out Incident, err error) {
+	transitionCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.incident.transition", trace.SpanKindInternal,
+		telemetry.StringAttribute("stormrelay.incident.to_state", string(in.To)),
+		telemetry.StringAttribute("stormrelay.incident.method", "api"),
+	)
+	defer func() {
+		if err != nil {
+			telemetry.MarkSpanError(span)
+			telemetry.SetSpanOutcome(span, "failed")
+		} else {
+			telemetry.SetSpanOutcome(span, "committed")
+		}
+		span.End()
+	}()
+
+	tx, err := s.pool.Begin(transitionCtx)
 	if err != nil {
 		return Incident{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var current Incident
-	err = tx.QueryRow(ctx, `SELECT id,tenant_id,correlation_key,title,state,severity,COALESCE(service,''),COALESCE(environment,''),first_event_at,last_event_at,acknowledged_at,resolved_at,created_at,updated_at,version FROM incidents WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, in.TenantID, in.IncidentID).Scan(&current.ID, &current.TenantID, &current.CorrelationKey, &current.Title, &current.State, &current.Severity, &current.Service, &current.Environment, &current.FirstEventAt, &current.LastEventAt, &current.AcknowledgedAt, &current.ResolvedAt, &current.CreatedAt, &current.UpdatedAt, &current.Version)
+	err = tx.QueryRow(transitionCtx, `SELECT id,tenant_id,correlation_key,title,state,severity,COALESCE(service,''),COALESCE(environment,''),first_event_at,last_event_at,acknowledged_at,resolved_at,created_at,updated_at,version FROM incidents WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, in.TenantID, in.IncidentID).Scan(&current.ID, &current.TenantID, &current.CorrelationKey, &current.Title, &current.State, &current.Severity, &current.Service, &current.Environment, &current.FirstEventAt, &current.LastEventAt, &current.AcknowledgedAt, &current.ResolvedAt, &current.CreatedAt, &current.UpdatedAt, &current.Version)
 	if err == pgx.ErrNoRows {
 		return Incident{}, errNoRows
 	}
 	if err != nil {
 		return Incident{}, err
 	}
+	span.SetAttributes(telemetry.StringAttribute("stormrelay.incident.from_state", string(current.State)))
 	if in.ExpectedVersion > 0 && in.ExpectedVersion != current.Version {
 		return Incident{}, fmt.Errorf("version conflict: current=%d", current.Version)
 	}
@@ -114,33 +131,47 @@ func (s *Store) TransitionIncident(ctx context.Context, in TransitionInput) (Inc
 	if in.To == incidents.Reopened {
 		resolved = nil
 	}
-	err = tx.QueryRow(ctx, `UPDATE incidents SET state=$2,acknowledged_at=$3,resolved_at=$4,updated_at=now(),version=version+1 WHERE id=$1 RETURNING id,tenant_id,correlation_key,title,state,severity,COALESCE(service,''),COALESCE(environment,''),first_event_at,last_event_at,acknowledged_at,resolved_at,created_at,updated_at,version`, current.ID, in.To, ack, resolved).Scan(&current.ID, &current.TenantID, &current.CorrelationKey, &current.Title, &current.State, &current.Severity, &current.Service, &current.Environment, &current.FirstEventAt, &current.LastEventAt, &current.AcknowledgedAt, &current.ResolvedAt, &current.CreatedAt, &current.UpdatedAt, &current.Version)
+	err = tx.QueryRow(transitionCtx, `UPDATE incidents SET state=$2,acknowledged_at=$3,resolved_at=$4,updated_at=now(),version=version+1 WHERE id=$1 RETURNING id,tenant_id,correlation_key,title,state,severity,COALESCE(service,''),COALESCE(environment,''),first_event_at,last_event_at,acknowledged_at,resolved_at,created_at,updated_at,version`, current.ID, in.To, ack, resolved).Scan(&current.ID, &current.TenantID, &current.CorrelationKey, &current.Title, &current.State, &current.Severity, &current.Service, &current.Environment, &current.FirstEventAt, &current.LastEventAt, &current.AcknowledgedAt, &current.ResolvedAt, &current.CreatedAt, &current.UpdatedAt, &current.Version)
 	if err != nil {
 		return Incident{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO incident_transitions(id,tenant_id,incident_id,from_state,to_state,actor_type,actor_id,reason,request_id,trace_id) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''),NULLIF($10,''))`, transitionID, in.TenantID, in.IncidentID, before.State, in.To, defaultText(in.ActorType, "user"), defaultText(in.ActorID, "unknown"), in.Reason, in.RequestID, in.TraceID)
+	_, err = tx.Exec(transitionCtx, `INSERT INTO incident_transitions(id,tenant_id,incident_id,from_state,to_state,actor_type,actor_id,reason,request_id,trace_id) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''),NULLIF($10,''))`, transitionID, in.TenantID, in.IncidentID, before.State, in.To, defaultText(in.ActorType, "user"), defaultText(in.ActorID, "unknown"), in.Reason, in.RequestID, in.TraceID)
 	if err != nil {
 		return Incident{}, err
 	}
-	if err := appendAudit(ctx, tx, AuditInput{TenantID: in.TenantID, ActorType: defaultText(in.ActorType, "user"), ActorID: defaultText(in.ActorID, "unknown"), Action: "incident.transition", ResourceType: "incident", ResourceID: in.IncidentID, RequestID: in.RequestID, TraceID: in.TraceID, Before: before, After: current, Metadata: map[string]any{"from": before.State, "to": in.To, "reason": in.Reason}}); err != nil {
+	if err := appendAudit(transitionCtx, tx, AuditInput{TenantID: in.TenantID, ActorType: defaultText(in.ActorType, "user"), ActorID: defaultText(in.ActorID, "unknown"), Action: "incident.transition", ResourceType: "incident", ResourceID: in.IncidentID, RequestID: in.RequestID, TraceID: in.TraceID, Before: before, After: current, Metadata: map[string]any{"from": before.State, "to": in.To, "reason": in.Reason}}); err != nil {
 		return Incident{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(transitionCtx); err != nil {
 		return Incident{}, err
 	}
 	return current, nil
 }
 
-func (s *Store) AcknowledgeByToken(ctx context.Context, rawToken, requestID, traceID string) (Incident, error) {
+func (s *Store) AcknowledgeByToken(ctx context.Context, rawToken, requestID, traceID string) (out Incident, err error) {
+	ackCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.incident.transition", trace.SpanKindInternal,
+		telemetry.StringAttribute("stormrelay.incident.to_state", string(incidents.Acknowledged)),
+		telemetry.StringAttribute("stormrelay.incident.method", "ack_token"),
+	)
+	defer func() {
+		if err != nil {
+			telemetry.MarkSpanError(span)
+			telemetry.SetSpanOutcome(span, "failed")
+		} else {
+			telemetry.SetSpanOutcome(span, "committed")
+		}
+		span.End()
+	}()
+
 	hash := sha256.Sum256([]byte(rawToken))
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.pool.Begin(ackCtx)
 	if err != nil {
 		return Incident{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var tokenID, tenantID, incidentID string
 	var usedAt *time.Time
-	err = tx.QueryRow(ctx, `SELECT id,tenant_id,incident_id,used_at FROM incident_ack_tokens WHERE token_hash=$1 AND expires_at>now() FOR UPDATE`, hash[:]).Scan(&tokenID, &tenantID, &incidentID, &usedAt)
+	err = tx.QueryRow(ackCtx, `SELECT id,tenant_id,incident_id,used_at FROM incident_ack_tokens WHERE token_hash=$1 AND expires_at>now() FOR UPDATE`, hash[:]).Scan(&tokenID, &tenantID, &incidentID, &usedAt)
 	if err == pgx.ErrNoRows {
 		return Incident{}, errNoRows
 	}
@@ -148,12 +179,14 @@ func (s *Store) AcknowledgeByToken(ctx context.Context, rawToken, requestID, tra
 		return Incident{}, err
 	}
 	var current Incident
-	err = tx.QueryRow(ctx, `SELECT id,tenant_id,correlation_key,title,state,severity,COALESCE(service,''),COALESCE(environment,''),first_event_at,last_event_at,acknowledged_at,resolved_at,created_at,updated_at,version FROM incidents WHERE id=$1 FOR UPDATE`, incidentID).Scan(&current.ID, &current.TenantID, &current.CorrelationKey, &current.Title, &current.State, &current.Severity, &current.Service, &current.Environment, &current.FirstEventAt, &current.LastEventAt, &current.AcknowledgedAt, &current.ResolvedAt, &current.CreatedAt, &current.UpdatedAt, &current.Version)
+	err = tx.QueryRow(ackCtx, `SELECT id,tenant_id,correlation_key,title,state,severity,COALESCE(service,''),COALESCE(environment,''),first_event_at,last_event_at,acknowledged_at,resolved_at,created_at,updated_at,version FROM incidents WHERE id=$1 FOR UPDATE`, incidentID).Scan(&current.ID, &current.TenantID, &current.CorrelationKey, &current.Title, &current.State, &current.Severity, &current.Service, &current.Environment, &current.FirstEventAt, &current.LastEventAt, &current.AcknowledgedAt, &current.ResolvedAt, &current.CreatedAt, &current.UpdatedAt, &current.Version)
 	if err != nil {
 		return Incident{}, err
 	}
+	span.SetAttributes(telemetry.StringAttribute("stormrelay.incident.from_state", string(current.State)))
 	if usedAt != nil || current.State == incidents.Acknowledged || current.State == incidents.Investigating {
-		return current, tx.Commit(ctx)
+		telemetry.SetSpanOutcome(span, "already_acknowledged")
+		return current, tx.Commit(ackCtx)
 	}
 	if err := incidents.ValidateTransition(current.State, incidents.Acknowledged); err != nil {
 		return Incident{}, err
@@ -164,22 +197,22 @@ func (s *Store) AcknowledgeByToken(ctx context.Context, rawToken, requestID, tra
 	if err != nil {
 		return Incident{}, err
 	}
-	_, err = tx.Exec(ctx, `UPDATE incident_ack_tokens SET used_at=$2 WHERE id=$1`, tokenID, now)
+	_, err = tx.Exec(ackCtx, `UPDATE incident_ack_tokens SET used_at=$2 WHERE id=$1`, tokenID, now)
 	if err != nil {
 		return Incident{}, err
 	}
-	err = tx.QueryRow(ctx, `UPDATE incidents SET state='acknowledged',acknowledged_at=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING id,tenant_id,correlation_key,title,state,severity,COALESCE(service,''),COALESCE(environment,''),first_event_at,last_event_at,acknowledged_at,resolved_at,created_at,updated_at,version`, incidentID, now).Scan(&current.ID, &current.TenantID, &current.CorrelationKey, &current.Title, &current.State, &current.Severity, &current.Service, &current.Environment, &current.FirstEventAt, &current.LastEventAt, &current.AcknowledgedAt, &current.ResolvedAt, &current.CreatedAt, &current.UpdatedAt, &current.Version)
+	err = tx.QueryRow(ackCtx, `UPDATE incidents SET state='acknowledged',acknowledged_at=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING id,tenant_id,correlation_key,title,state,severity,COALESCE(service,''),COALESCE(environment,''),first_event_at,last_event_at,acknowledged_at,resolved_at,created_at,updated_at,version`, incidentID, now).Scan(&current.ID, &current.TenantID, &current.CorrelationKey, &current.Title, &current.State, &current.Severity, &current.Service, &current.Environment, &current.FirstEventAt, &current.LastEventAt, &current.AcknowledgedAt, &current.ResolvedAt, &current.CreatedAt, &current.UpdatedAt, &current.Version)
 	if err != nil {
 		return Incident{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO incident_transitions(id,tenant_id,incident_id,from_state,to_state,actor_type,actor_id,reason,request_id,trace_id) VALUES($1,$2,$3,$4,'acknowledged','ack-token',$5,'notification acknowledgement link',$6,$7)`, transitionID, tenantID, incidentID, before.State, tokenID, requestID, traceID)
+	_, err = tx.Exec(ackCtx, `INSERT INTO incident_transitions(id,tenant_id,incident_id,from_state,to_state,actor_type,actor_id,reason,request_id,trace_id) VALUES($1,$2,$3,$4,'acknowledged','ack-token',$5,'notification acknowledgement link',$6,$7)`, transitionID, tenantID, incidentID, before.State, tokenID, requestID, traceID)
 	if err != nil {
 		return Incident{}, err
 	}
-	if err := appendAudit(ctx, tx, AuditInput{TenantID: tenantID, ActorType: "ack-token", ActorID: tokenID, Action: "incident.acknowledged", ResourceType: "incident", ResourceID: incidentID, RequestID: requestID, TraceID: traceID, Before: before, After: current, Metadata: map[string]any{"method": "notification_link"}}); err != nil {
+	if err := appendAudit(ackCtx, tx, AuditInput{TenantID: tenantID, ActorType: "ack-token", ActorID: tokenID, Action: "incident.acknowledged", ResourceType: "incident", ResourceID: incidentID, RequestID: requestID, TraceID: traceID, Before: before, After: current, Metadata: map[string]any{"method": "notification_link"}}); err != nil {
 		return Incident{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(ackCtx); err != nil {
 		return Incident{}, err
 	}
 	return current, nil
