@@ -94,15 +94,20 @@ func (w *Worker) handleMessage(ctx context.Context, msg *nats.Msg) {
 		w.failMessage(messageCtx, msg, err)
 		return
 	}
+	telemetry.SetSpanBool(span, "stormrelay.event.duplicate", result.Duplicate)
+	telemetry.SetSpanInt(span, "stormrelay.notification.enqueued_count", len(result.NotificationIDs))
 	if result.Duplicate {
 		w.metrics.DuplicateEvents.Add(1)
 	} else {
 		w.metrics.OpenIncidents.Store(max64(1, w.metrics.OpenIncidents.Load()))
 	}
 	w.metrics.ObserveEventLatency(time.Since(started))
-	if err := msg.AckSync(); err != nil {
-		telemetry.RecordSpanError(span, err)
-		telemetry.Log(messageCtx, w.logger, slog.LevelWarn, "event processed but acknowledgement failed", "event_id", event.ID, "error", err)
+	_, ackSpan := telemetry.StartInternalSpan(messageCtx, "stormrelay.event.ack")
+	ackErr := msg.AckSync()
+	telemetry.EndSpan(ackSpan, ackErr)
+	if ackErr != nil {
+		telemetry.RecordSpanError(span, ackErr)
+		telemetry.Log(messageCtx, w.logger, slog.LevelWarn, "event processed but acknowledgement failed", "event_id", event.ID, "error", ackErr)
 		return
 	}
 	telemetry.Log(messageCtx, w.logger, slog.LevelInfo, "event processed", "event_id", event.ID, "normalized_event_id", result.EventID, "incident_id", result.Incident.ID, "duplicate", result.Duplicate, "duration_ms", time.Since(started).Milliseconds())
@@ -114,7 +119,10 @@ func (w *Worker) failMessage(ctx context.Context, msg *nats.Msg, err error) {
 		deliveries = metadata.NumDelivered
 	}
 	if deliveries >= uint64(w.eventMaxDeliveries()) {
-		if dlqErr := w.bus.PublishDLQ(msg, err.Error()); dlqErr != nil {
+		_, dlqSpan := telemetry.StartInternalSpan(ctx, "stormrelay.event.publish_dlq")
+		dlqErr := w.bus.PublishDLQ(msg, err.Error())
+		telemetry.EndSpan(dlqSpan, dlqErr)
+		if dlqErr != nil {
 			telemetry.Log(ctx, w.logger, slog.LevelError, "publish DLQ failed", "error", dlqErr)
 			_ = msg.NakWithDelay(w.eventRetryMaxDelay())
 			return
@@ -136,15 +144,24 @@ func (w *Worker) deliveryLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			deliveries, err := w.store.ClaimDeliveries(ctx, 20)
+			claimCtx, claimSpan := telemetry.StartDatabaseSpan(ctx, "claim_deliveries")
+			deliveries, err := w.store.ClaimDeliveries(claimCtx, 20)
+			telemetry.SetSpanInt(claimSpan, "stormrelay.notification.claimed_count", len(deliveries))
+			telemetry.EndSpan(claimSpan, err)
 			if err != nil {
 				telemetry.Log(ctx, w.logger, slog.LevelError, "claim deliveries failed", "error", err)
 				continue
 			}
 			for _, delivery := range deliveries {
-				ref, deliverErr := w.notifier.Deliver(ctx, delivery)
-				if err := w.store.CompleteDelivery(ctx, delivery.ID, ref, deliverErr); err != nil {
-					telemetry.Log(ctx, w.logger, slog.LevelError, "update delivery failed", "delivery_id", delivery.ID, "error", err)
+				deliveryCtx, deliverySpan := telemetry.StartNotificationSpan(ctx, "deliver", delivery.Kind)
+				telemetry.SetSpanInt(deliverySpan, "stormrelay.notification.attempt", delivery.Attempt)
+				ref, deliverErr := w.notifier.Deliver(deliveryCtx, delivery)
+				completeCtx, completeSpan := telemetry.StartDatabaseSpan(deliveryCtx, "complete_delivery")
+				completeErr := w.store.CompleteDelivery(completeCtx, delivery.ID, ref, deliverErr)
+				telemetry.EndSpan(completeSpan, completeErr)
+				telemetry.EndSpan(deliverySpan, errors.Join(deliverErr, completeErr))
+				if completeErr != nil {
+					telemetry.Log(ctx, w.logger, slog.LevelError, "update delivery failed", "delivery_id", delivery.ID, "error", completeErr)
 				}
 				if deliverErr != nil {
 					w.metrics.NotificationFailures.Add(1)

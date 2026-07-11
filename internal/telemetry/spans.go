@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -15,7 +17,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const maxSpanAttributeBytes = 256
+const (
+	maxSpanAttributeBytes = 256
+	spanDigestBytes       = 16
+)
 
 func StartHTTPServerSpan(ctx context.Context, headers http.Header, method string) (context.Context, trace.Span) {
 	ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(headers))
@@ -29,6 +34,14 @@ func StartHTTPServerSpan(ctx context.Context, headers http.Header, method string
 
 func InjectHTTPTrace(ctx context.Context, headers http.Header) {
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(headers))
+}
+
+// TraceParent returns a W3C traceparent value for the current span. It contains
+// only trace identifiers and sampling flags; baggage is intentionally excluded.
+func TraceParent(ctx context.Context) string {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	return carrier["traceparent"]
 }
 
 func FinishHTTPServerSpan(span trace.Span, method string, status int, route string, duration time.Duration) {
@@ -97,6 +110,20 @@ func (w *statusResponseWriter) Write(body []byte) (int, error) {
 
 func (w *statusResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
+func StartEventProducerSpan(ctx context.Context, destination, eventID, eventType string) (context.Context, trace.Span) {
+	return otel.Tracer(instrumentationName+"/messaging").Start(
+		ctx,
+		"stormrelay.event.publish",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", boundedSpanAttribute(destination)),
+			attribute.String("stormrelay.event.id_hash", spanDigest(eventID)),
+			attribute.String("stormrelay.event.type_hash", spanDigest(eventType)),
+		),
+	)
+}
+
 func StartEventConsumerSpan(ctx context.Context, traceParent, eventID, eventType, source string) (context.Context, trace.Span) {
 	if traceParent != "" {
 		ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier{"traceparent": traceParent})
@@ -106,11 +133,66 @@ func StartEventConsumerSpan(ctx context.Context, traceParent, eventID, eventType
 		"stormrelay.event.process",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
-			attribute.String("messaging.message.id", boundedSpanAttribute(eventID)),
-			attribute.String("event.type", boundedSpanAttribute(eventType)),
-			attribute.String("event.source", boundedSpanAttribute(source)),
+			attribute.String("messaging.system", "nats"),
+			attribute.String("stormrelay.event.id_hash", spanDigest(eventID)),
+			attribute.String("stormrelay.event.type_hash", spanDigest(eventType)),
+			attribute.String("stormrelay.event.source_hash", spanDigest(source)),
 		),
 	)
+}
+
+func StartDatabaseSpan(ctx context.Context, operation string) (context.Context, trace.Span) {
+	return otel.Tracer(instrumentationName+"/storage").Start(
+		ctx,
+		"stormrelay.db."+boundedSpanAttribute(operation),
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system.name", "postgresql"),
+			attribute.String("db.operation.name", boundedSpanAttribute(operation)),
+		),
+	)
+}
+
+func StartInternalSpan(ctx context.Context, name string) (context.Context, trace.Span) {
+	return otel.Tracer(instrumentationName+"/application").Start(
+		ctx,
+		boundedSpanAttribute(name),
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+}
+
+func StartNotificationSpan(ctx context.Context, operation, kind string) (context.Context, trace.Span) {
+	return otel.Tracer(instrumentationName+"/notifications").Start(
+		ctx,
+		"stormrelay.notification."+boundedSpanAttribute(operation),
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("stormrelay.notification.kind", boundedSpanAttribute(kind))),
+	)
+}
+
+func SetSpanBool(span trace.Span, key string, value bool) {
+	if span != nil {
+		span.SetAttributes(attribute.Bool(key, value))
+	}
+}
+
+func SetSpanInt(span trace.Span, key string, value int) {
+	if span != nil {
+		span.SetAttributes(attribute.Int(key, value))
+	}
+}
+
+func SetSpanString[T ~string](span trace.Span, key string, value T) {
+	if span != nil {
+		span.SetAttributes(attribute.String(key, boundedSpanAttribute(string(value))))
+	}
+}
+
+func EndSpan(span trace.Span, err error) {
+	RecordSpanError(span, err)
+	if span != nil {
+		span.End()
+	}
 }
 
 func RecordSpanError(span trace.Span, err error) {
@@ -131,4 +213,12 @@ func boundedSpanAttribute(value string) string {
 		value = value[:len(value)-1]
 	}
 	return value
+}
+
+func spanDigest(value string) string {
+	if value == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:spanDigestBytes])
 }
