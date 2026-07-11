@@ -133,10 +133,10 @@ func TestConcurrentDuplicateProcessingCreatesOneCanonicalEvent(t *testing.T) {
 	err = db.QueryRow(context.Background(), `
 		SELECT
 			(SELECT count(*) FROM event_duplicates WHERE canonical_event_id=$1::uuid),
-			(SELECT count(*) FROM audit_entries WHERE action='event.duplicate' AND resource_id=$1::text),
+			(SELECT count(*) FROM audit_entries WHERE action='event.duplicate' AND resource_id=$3),
 			(SELECT count(*) FROM raw_events WHERE source_id=$2::uuid),
 			(SELECT count(*) FROM normalized_events WHERE source_id=$2::uuid AND source_event_id='same-upstream-id')
-	`, eventID, source.Source.ID).Scan(&duplicateRows, &duplicateAudits, &rawRows, &canonicalRows)
+	`, eventID, source.Source.ID, eventID).Scan(&duplicateRows, &duplicateAudits, &rawRows, &canonicalRows)
 	if err != nil {
 		t.Fatal(err)
 	}
