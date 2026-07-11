@@ -2,7 +2,7 @@ SHELL := /bin/sh
 GO ?= go
 COMPOSE ?= docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: fmt test test-race vet build demo-up demo-down smoke backup-restore-drill failure-test dependency-outage-drill failure upgrade-drill
+.PHONY: fmt test test-race vet build demo-up demo-down smoke backup-restore-drill failure-test dependency-outage-drill failure upgrade-drill benchmark-correctness benchmark-full benchmark-validate
 fmt:
 	@test -z "$$($(GO) fmt ./...)"
 
@@ -44,3 +44,13 @@ failure:
 
 upgrade-drill:
 	$(GO) test -tags=upgrade -count=1 -run '^TestUpgradeFromVersion6ToCurrent$$' -v ./internal/storage
+
+benchmark-correctness:
+	bash ./tests/load/run-profile.sh correctness
+
+benchmark-full:
+	bash ./tests/load/run-profile.sh full
+
+benchmark-validate:
+	@test -n "$(RESULT)" || (echo "usage: make benchmark-validate RESULT=.benchmark-results/full/result.json" >&2; exit 2)
+	python3 ./tests/load/validate_result.py ./tests/load/result.schema.json "$(RESULT)"
