@@ -94,7 +94,7 @@ func (b *Bus) SubscriptionWithMaxDeliveries(maxDeliveries int) (*nats.Subscripti
 		FilterSubject: b.subject,
 		ReplayPolicy:  nats.ReplayInstantPolicy,
 	}
-	if _, err := b.js.AddConsumer(b.stream, &cfg); err != nil {
+	if _, err := b.js.AddConsumer(b.stream, cfg); err != nil {
 		return nil, fmt.Errorf("reconcile JetStream consumer: %w", err)
 	}
 	return b.js.PullSubscribe(b.subject, b.consumer, nats.Bind(b.stream, b.consumer))
