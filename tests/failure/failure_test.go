@@ -57,6 +57,18 @@ func openFailureStore(t *testing.T) *storage.Store {
 	return store
 }
 
+func resetRunbookState(t *testing.T) {
+	t.Helper()
+	db, err := pgx.Connect(context.Background(), failureDatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close(context.Background()) }()
+	if _, err := db.Exec(context.Background(), `TRUNCATE TABLE approvals, execution_steps, executions, runbook_versions, runbooks CASCADE`); err != nil {
+		t.Fatalf("reset runbook state: %v", err)
+	}
+}
+
 func TestPoisonMessageReachesDLQWithSanitizedMetadata(t *testing.T) {
 	store := openFailureStore(t)
 	suffix := fmt.Sprint(time.Now().UnixNano())
@@ -112,7 +124,7 @@ func TestPoisonMessageReachesDLQWithSanitizedMetadata(t *testing.T) {
 	message := messages[0]
 	if string(message.Data) != string(poison) {
 		cancel()
-		t.Fatalf("DLQ did not preserve the original payload")
+		t.Fatal("DLQ did not preserve the original payload")
 	}
 	failure := message.Header.Get("X-StormRelay-Failure")
 	if !strings.Contains(failure, "decode event") {
@@ -145,6 +157,7 @@ func TestPoisonMessageReachesDLQWithSanitizedMetadata(t *testing.T) {
 
 func TestExpiredRunbookLeaseRequiresIdempotencyForAutomaticReplay(t *testing.T) {
 	store := openFailureStore(t)
+	resetRunbookState(t)
 	ctx := context.Background()
 	db, err := pgx.Connect(ctx, failureDatabaseURL())
 	if err != nil {
@@ -278,6 +291,7 @@ spec:
 
 func TestPersistedWaitContinuesAfterControlPlaneRestart(t *testing.T) {
 	first := openFailureStore(t)
+	resetRunbookState(t)
 	ctx := context.Background()
 	runbookKey := fmt.Sprintf("failure-restart-%d", time.Now().UnixNano())
 	document := fmt.Sprintf(`apiVersion: stormrelay.io/v1
@@ -315,7 +329,7 @@ spec:
 	// A second Store has no process-local execution state. Advancing through this
 	// handle models a newly started control plane/worker after the first process exits.
 	second := openFailureStore(t)
-	if advanced, err := second.AdvanceRunbookTimers(ctx, "worker-after-restart"); err != nil || advanced < 1 {
+	if advanced, err := second.AdvanceRunbookTimers(ctx, "worker-after-restart"); err != nil || advanced != 1 {
 		t.Fatalf("advance persisted wait after restart: advanced=%d err=%v", advanced, err)
 	}
 	claimed, err = second.ClaimExecutionSteps(ctx, "worker-after-restart", 10, 30*time.Second)
