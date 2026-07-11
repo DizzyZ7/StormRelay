@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./tests/failure/backup-restore.sh 2>&1 | tee backup-restore.log
+          bash ./tests/failure/backup-restore.sh 2>&1 | tee backup-restore.log
       - name: Upload sanitized drill diagnostics
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
