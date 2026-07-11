@@ -8,11 +8,14 @@ on:
       - "internal/config/**"
       - "internal/ingestion/**"
       - "internal/messaging/**"
+      - "internal/notifications/**"
+      - "internal/plugins/**"
       - "internal/runbookengine/**"
       - "internal/storage/**"
       - "internal/worker/**"
       - "deploy/compose/**"
       - "tests/failure/**"
+      - "tests/integration/vertical_test.go"
       - ".github/workflows/failure-injection.yml"
       - "Makefile"
   push:
@@ -24,11 +27,14 @@ on:
       - "internal/config/**"
       - "internal/ingestion/**"
       - "internal/messaging/**"
+      - "internal/notifications/**"
+      - "internal/plugins/**"
       - "internal/runbookengine/**"
       - "internal/storage/**"
       - "internal/worker/**"
       - "deploy/compose/**"
       - "tests/failure/**"
+      - "tests/integration/vertical_test.go"
       - ".github/workflows/failure-injection.yml"
       - "Makefile"
   workflow_dispatch:
@@ -67,6 +73,19 @@ jobs:
         run: go mod verify
       - name: Start NATS JetStream
         run: docker run --detach --name stormrelay-failure-nats --publish 4222:4222 nats:2.11-alpine -js
+      - name: Inject plugin and notification provider failures
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 -v ./internal/plugins ./internal/notifications 2>&1 | tee failure-adapters.log
+      - name: Verify concurrent duplicate audit invariants
+        shell: bash
+        env:
+          STORMRELAY_TEST_DATABASE_URL: postgres://stormrelay:stormrelay@localhost:5432/stormrelay?sslmode=disable
+          STORMRELAY_TEST_NATS_URL: nats://localhost:4222
+        run: |
+          set -o pipefail
+          go test -tags=integration -count=1 -run '^TestConcurrentDuplicateProcessingCreatesOneCanonicalEvent$' -v ./tests/integration 2>&1 | tee failure-dedup.log
       - name: Run poison-message and runbook recovery tests
         shell: bash
         env:
@@ -80,7 +99,10 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: failure-state-diagnostics
-          path: failure-state.log
+          path: |
+            failure-adapters.log
+            failure-dedup.log
+            failure-state.log
           if-no-files-found: warn
           retention-days: 1
 
