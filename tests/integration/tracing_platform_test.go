@@ -20,7 +20,6 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/DizzyZ7/StormRelay/internal/worker"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -228,7 +227,6 @@ func assertPlatformSafeSpanData(t *testing.T, span sdktrace.ReadOnlySpan, secret
 			if strings.Contains(fmt.Sprint(item.Value.AsInterface()), secretMarker) {
 				t.Fatalf("span %q event leaked marker", span.Name())
 			}
+		}
 	}
 }
-
-var _ attribute.KeyValue
