@@ -40,9 +40,10 @@ Implemented foundation:
 - provisioned Prometheus alert rules for availability, pipeline, capacity, and integration failures;
 - provisioned Grafana operations dashboard and datasource;
 - alert-specific diagnosis, mitigation, and closure runbooks;
-- static `promtool`/Compose/dashboard validation and live provisioning smoke tests.
+- static `promtool`/Compose/dashboard validation and live provisioning smoke tests;
+- automated PostgreSQL backup/restore drill with data fingerprints, raw-payload hash verification, audit-trigger validation, restored credential checks, and JetStream redelivery deduplication coverage.
 
-Remaining: broader application spans, complete failure injection, benchmark harness, backup/restore drill, and upgrade tests.
+Remaining: broader application spans, complete failure injection, benchmark harness, and upgrade tests.
 
 ## Milestone 5 — Kubernetes and release
 
