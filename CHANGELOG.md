@@ -23,5 +23,6 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - Automatically provisioned Grafana datasource and StormRelay operations dashboard.
 - Alert-specific operator runbooks with diagnosis, safe mitigation, and closure criteria.
 - Dedicated `promtool`, Compose-model, dashboard-JSON, contract, and live provisioning checks.
+- Automated PostgreSQL backup/restore drill with deterministic data fingerprints, raw-payload SHA-256 verification, foreign-key and append-only audit checks, restored encrypted credential validation, and JetStream redelivery deduplication coverage.
 
 No v0.1.0 release has been claimed yet.
