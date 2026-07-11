@@ -27,10 +27,11 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - Reusable guarded PostgreSQL backup/restore helpers with atomic archive publication, SHA-256 verification, explicit confirmation, no-overwrite behavior, non-empty-target refusal, and a dedicated helper contract test.
 - Dedicated failure-injection workflow for PostgreSQL/NATS outages, concurrent duplicates, poison messages and DLQ, runbook lease recovery, process restart, plugin timeout/malformed responses, and notification-provider failures.
 - Configurable event delivery limit and capped exponential backoff with deterministic jitter.
-- Reproducible Go, PostgreSQL, and k6 benchmark harness with versioned correctness/full profiles, separate HTTP acceptance and event-to-incident percentiles, environment capture, schema-validated result artifacts, and explicit no-claims guidance for hosted CI.
+- Explicit schema v6-to-v7 upgrade drill preserving encrypted source credentials, service-account authentication, audit records, and migration history while validating new OIDC constraints and migration idempotency.
 
 ### Fixed
 
 - Release HMAC replay reservations when normalization or JetStream durable acceptance fails, allowing an identical signed request to be retried after a `503` response while retaining replay protection after `202 Accepted`.
+- Canonicalize accepted HMAC replay identities and fail closed at replay-cache capacity without evicting active reservations.
 
 No v0.1.0 release has been claimed yet.
