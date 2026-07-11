@@ -46,7 +46,8 @@ import json
 import shlex
 import sys
 
-profile = json.load(open(sys.argv[1], encoding='utf-8'))
+with open(sys.argv[1], encoding='utf-8') as handle:
+    profile = json.load(handle)
 values = {
     'SOURCE_COUNT': profile['dataset']['source_count'],
     'PAYLOAD_BYTES': profile['dataset']['payload_bytes'],
@@ -81,11 +82,8 @@ wait_http() {
   return 1
 }
 
-echo "Starting isolated StormRelay benchmark profile: $PROFILE_NAME"
+echo "Running StormRelay benchmark profile: $PROFILE_NAME"
 "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
-"${COMPOSE[@]}" up --build -d postgres nats server worker
-wait_http 'http://localhost:8080/readyz' 'server'
-wait_http 'http://localhost:8081/readyz' 'worker'
 
 printf '# StormRelay Go microbenchmarks\n' >"$GO_BENCHMARK_PATH"
 go test \
@@ -96,6 +94,11 @@ go test \
   -count "$GO_BENCH_COUNT" \
   ./internal/events ./internal/policies | tee -a "$GO_BENCHMARK_PATH"
 
+# Storage benchmarks receive a dedicated fresh PostgreSQL volume. Their rows are
+# intentionally discarded before the end-to-end phase so k6 never measures a
+# database polluted by the benchmark that preceded it.
+echo 'Starting isolated PostgreSQL transaction benchmark phase'
+"${COMPOSE[@]}" up -d --wait --wait-timeout 60 postgres
 printf '\n# StormRelay PostgreSQL processing benchmarks\n' >>"$GO_BENCHMARK_PATH"
 STORMRELAY_TEST_DATABASE_URL='postgres://stormrelay:stormrelay@localhost:5432/stormrelay?sslmode=disable' \
   go test \
@@ -106,11 +109,20 @@ STORMRELAY_TEST_DATABASE_URL='postgres://stormrelay:stormrelay@localhost:5432/st
     -benchtime "$GO_BENCHTIME" \
     -count "$GO_BENCH_COUNT" \
     ./tests/load | tee -a "$GO_BENCHMARK_PATH"
+"${COMPOSE[@]}" down -v
+
+# The k6 phase starts from another new database and JetStream volume. Only the
+# warm-up scenario populates caches before measurement custom metrics begin.
+echo 'Starting clean end-to-end benchmark phase'
+"${COMPOSE[@]}" up --build -d postgres nats server worker
+wait_http 'http://localhost:8080/readyz' 'server'
+wait_http 'http://localhost:8081/readyz' 'worker'
 
 echo "Running k6 image $K6_IMAGE"
 docker run --rm \
   --network host \
-  --volume "$ROOT_DIR:/work" \
+  --volume "$ROOT_DIR:/work:ro" \
+  --volume "$OUTPUT_DIR:/results" \
   --workdir /work \
   --env STORMRELAY_BASE_URL='http://localhost:8080' \
   --env STORMRELAY_API_KEY="$AUTH_KEY" \
@@ -122,7 +134,7 @@ docker run --rm \
   --env STORMRELAY_DURATION_SECONDS="$DURATION_SECONDS" \
   --env STORMRELAY_INCIDENT_TIMEOUT_SECONDS="$INCIDENT_TIMEOUT_SECONDS" \
   --env STORMRELAY_POLL_INTERVAL_MS="$POLL_INTERVAL_MS" \
-  --env STORMRELAY_K6_SUMMARY_PATH="/work/${K6_SUMMARY_PATH#$ROOT_DIR/}" \
+  --env STORMRELAY_K6_SUMMARY_PATH='/results/k6-summary.json' \
   "$K6_IMAGE" run tests/load/k6/event_to_incident.js | tee "$OUTPUT_DIR/k6.log"
 
 python3 tests/load/capture_result.py \
