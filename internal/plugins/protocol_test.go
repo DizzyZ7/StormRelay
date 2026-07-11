@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -84,6 +86,10 @@ func TestPluginCallRejectsIdempotencyMismatch(t *testing.T) {
 }
 
 func TestPluginCallPropagatesW3CContextInHeaderAndContract(t *testing.T) {
+	oldPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	defer otel.SetTextMapPropagator(oldPropagator)
+
 	traceID, _ := trace.TraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736")
 	spanID, _ := trace.SpanIDFromHex("00f067aa0ba902b7")
 	ctx := trace.ContextWithRemoteSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
