@@ -26,6 +26,7 @@ K6_SUMMARY_PATH="$OUTPUT_DIR/k6-summary.json"
 RESULT_PATH="$OUTPUT_DIR/result.json"
 AUTH_KEY=${STORMRELAY_BENCHMARK_API_KEY:-local-development-only-change-me}
 DATABASE_URL="postgres://stormrelay:stormrelay@localhost:${POSTGRES_PORT}/stormrelay?sslmode=disable"
+CONTAINER_USER="$(id -u):$(id -g)"
 
 cleanup() {
   status=$?
@@ -140,12 +141,14 @@ wait_http 'http://localhost:8081/readyz' 'worker'
 
 echo "Inspecting k6 scenario with image $K6_IMAGE"
 docker run --rm \
+  --user "$CONTAINER_USER" \
   --volume "$ROOT_DIR:/work:ro" \
   --workdir /work \
   "$K6_IMAGE" inspect tests/load/k6/event_to_incident.js 2>&1 | tee "$OUTPUT_DIR/k6-inspect.log"
 
 echo "Running k6 image $K6_IMAGE"
 docker run --rm \
+  --user "$CONTAINER_USER" \
   --network host \
   --volume "$ROOT_DIR:/work:ro" \
   --volume "$OUTPUT_DIR:/results" \
