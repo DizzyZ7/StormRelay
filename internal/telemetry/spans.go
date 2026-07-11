@@ -106,6 +106,8 @@ func StartEventConsumerSpan(ctx context.Context, traceParent, eventID, eventType
 		"stormrelay.event.process",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.operation.name", "process"),
 			attribute.String("messaging.message.id", boundedSpanAttribute(eventID)),
 			attribute.String("event.type", boundedSpanAttribute(eventType)),
 			attribute.String("event.source", boundedSpanAttribute(source)),
