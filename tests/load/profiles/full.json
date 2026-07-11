@@ -1,0 +1,36 @@
+{
+  "schema_version": "stormrelay.benchmark-profile/v1",
+  "name": "full",
+  "description": "Explicit operator-run profile for comparable local or dedicated-runner measurements. Results are meaningful only with the generated environment metadata attached.",
+  "dataset": {
+    "event_shape": "generic-json",
+    "tenant_count": 1,
+    "source_count": 4,
+    "payload_bytes": 2048,
+    "duplicate_ratio": 0.15,
+    "service_cardinality": "one unique service per canonical event",
+    "environment": "benchmark",
+    "severity": "critical"
+  },
+  "concurrency": {
+    "virtual_users": 25,
+    "max_virtual_users": 25
+  },
+  "timing": {
+    "warmup_seconds": 15,
+    "duration_seconds": 120,
+    "incident_timeout_seconds": 20,
+    "poll_interval_milliseconds": 100
+  },
+  "go_benchmark": {
+    "benchtime": "2s",
+    "count": 5
+  },
+  "dependencies": {
+    "postgres_image": "postgres:17-alpine",
+    "postgres_max_connections": 100,
+    "nats_image": "nats:2.11-alpine",
+    "jetstream_storage": "file",
+    "k6_image": "grafana/k6:0.57.0"
+  }
+}

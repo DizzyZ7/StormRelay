@@ -1,0 +1,36 @@
+{
+  "schema_version": "stormrelay.benchmark-profile/v1",
+  "name": "correctness",
+  "description": "Small deterministic profile used by CI to prove the harness, metrics, and result schema work end to end. It is not a capacity result.",
+  "dataset": {
+    "event_shape": "generic-json",
+    "tenant_count": 1,
+    "source_count": 1,
+    "payload_bytes": 1024,
+    "duplicate_ratio": 0.2,
+    "service_cardinality": "one unique service per canonical event",
+    "environment": "benchmark",
+    "severity": "critical"
+  },
+  "concurrency": {
+    "virtual_users": 1,
+    "max_virtual_users": 1
+  },
+  "timing": {
+    "warmup_seconds": 2,
+    "duration_seconds": 8,
+    "incident_timeout_seconds": 10,
+    "poll_interval_milliseconds": 100
+  },
+  "go_benchmark": {
+    "benchtime": "5x",
+    "count": 1
+  },
+  "dependencies": {
+    "postgres_image": "postgres:17-alpine",
+    "postgres_max_connections": 100,
+    "nats_image": "nats:2.11-alpine",
+    "jetstream_storage": "file",
+    "k6_image": "grafana/k6:0.57.0"
+  }
+}

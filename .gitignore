@@ -1,7 +1,10 @@
 /bin/
 /coverage.out
+/.benchmark-results/
 *.test
 *.prof
+*.pyc
+__pycache__/
 .env
 .env.*
 !.env.example

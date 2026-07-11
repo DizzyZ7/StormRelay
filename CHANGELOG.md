@@ -28,6 +28,7 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - Dedicated failure-injection workflow for PostgreSQL/NATS outages, concurrent duplicates, poison messages and DLQ, runbook lease recovery, process restart, plugin timeout/malformed responses, and notification-provider failures.
 - Configurable event delivery limit and capped exponential backoff with deterministic jitter.
 - Explicit schema v6-to-v7 upgrade drill preserving encrypted source credentials, service-account authentication, audit records, and migration history while validating new OIDC constraints and migration idempotency.
+- Reproducible Go, PostgreSQL, and k6 benchmark harness with versioned correctness/full profiles, separate HTTP acceptance and event-to-incident percentiles, environment capture, schema-validated result artifacts, and explicit no-claims guidance for hosted CI.
 
 ### Fixed
 
