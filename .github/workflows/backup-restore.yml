@@ -39,6 +39,8 @@ jobs:
       - uses: actions/checkout@ba097532fb203f7e88c9c3c0b899b49469908a92
         with:
           persist-credentials: false
+      - name: Validate drill shell syntax
+        run: bash -n ./tests/failure/backup-restore.sh
       - name: Run PostgreSQL backup and restore drill
         shell: bash
         run: |
