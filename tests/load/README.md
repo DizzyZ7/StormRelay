@@ -33,11 +33,11 @@ The k6 scenario creates real HMAC sources, sends signed generic webhook events, 
 
 The latter includes JetStream delivery, PostgreSQL processing, correlation, audit, and API visibility. It intentionally does not pretend that HTTP acceptance means incident persistence is complete.
 
-The profile's duplicate ratio reuses upstream source event IDs with a fresh valid HMAC request. It exercises ingress and JetStream duplicate handling. The PostgreSQL duplicate transaction and audit path is measured independently by `BenchmarkProcessEventDuplicate` so transport-level suppression is not confused with database deduplication cost.
+The profile's duplicate ratio reuses upstream source event IDs in separately signed HTTP deliveries. A per-delivery payload marker prevents the benchmark from confusing a legitimate redelivery with a byte-for-byte HMAC replay. The correctness profile requires at least one duplicate delivery when the configured ratio is non-zero. The PostgreSQL duplicate transaction and audit path is measured independently by `BenchmarkProcessEventDuplicate` so transport-level acceptance is not confused with database deduplication cost.
 
 ## Profiles
 
-`profiles/correctness.json` is a small CI profile. It proves that the benchmark code, metrics, environment capture, and result schema work. It is not a capacity result and must not be quoted as one.
+`profiles/correctness.json` is a small CI profile. It proves that the benchmark code, metrics, environment capture, dependency configuration, duplicate path, and result schema work. It is not a capacity result and must not be quoted as one.
 
 `profiles/full.json` is an explicit operator-run profile. It has a longer warm-up, longer measurement phase, more sources, and more virtual users. Run it on a dedicated, identified machine when producing a comparable result.
 
@@ -51,6 +51,8 @@ Both profiles define:
 - incident visibility timeout and poll interval;
 - Go benchmark duration/count;
 - PostgreSQL, NATS, JetStream, and k6 versions/configuration.
+
+The runner applies the profile's PostgreSQL image, `max_connections`, NATS image, and k6 image to the actual test environment. StormRelay currently supports the benchmark's file-backed JetStream mode; an unsupported mode fails before any measurement. The generated result records both configured image references and locally resolved image IDs/repository digests.
 
 StormRelay v1 currently uses one tenant in the benchmark profile. Multi-tenant workload mixes must be introduced as a new profile version rather than silently changing this dataset.
 
@@ -70,6 +72,7 @@ Generated files are written to:
 ```text
 .benchmark-results/<profile>/
   go-benchmark.txt
+  k6-inspect.log
   k6.log
   k6-summary.json
   result.json
@@ -94,11 +97,12 @@ A valid result includes:
 - accepted, durable, and duplicate request counts;
 - parsed Go benchmark records;
 - commit SHA and dirty-worktree state;
-- CPU model, logical CPUs, memory, OS, architecture, Go, Docker, Compose, k6, PostgreSQL, and NATS identifiers;
+- CPU model, logical CPUs, memory, OS, architecture, Go, Docker, and Compose identifiers;
+- configured plus resolved k6, PostgreSQL, and NATS image identities;
 - complete profile and phase metadata.
 
 Database and NATS connection strings in the report are fixed redacted targets. Secrets, source credentials, HMAC signatures, raw payloads, and API keys are never written to benchmark artifacts.
 
 ## Comparing results
 
-Compare only results with the same schema version, profile, dependency versions, hardware class, and cache state. Hosted CI runners are suitable for correctness, not stable regression thresholds. Before adding a performance gate, collect repeated results on a dedicated runner, quantify variance, define an allowed regression budget, and document the baseline commit.
+Compare only results with the same schema version, profile, resolved dependency identities, hardware class, and cache state. Hosted CI runners are suitable for correctness, not stable regression thresholds. Before adding a performance gate, collect repeated results on a dedicated runner, quantify variance, define an allowed regression budget, and document the baseline commit.
