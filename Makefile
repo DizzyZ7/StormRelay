@@ -2,7 +2,7 @@ SHELL := /bin/sh
 GO ?= go
 COMPOSE ?= docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: fmt test test-race vet build demo-up demo-down smoke backup-restore-drill failure-test dependency-outage-drill failure
+.PHONY: fmt test test-race vet build demo-up demo-down smoke backup-restore-drill failure-test dependency-outage-drill failure upgrade-drill
 fmt:
 	@test -z "$$($(GO) fmt ./...)"
 
@@ -41,3 +41,6 @@ dependency-outage-drill:
 
 failure:
 	bash ./tests/failure/run.sh
+
+upgrade-drill:
+	$(GO) test -tags=upgrade -count=1 -run '^TestUpgradeFromVersion6ToCurrent$$' -v ./internal/storage
