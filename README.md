@@ -4,7 +4,7 @@ StormRelay is a self-hosted event-correlation and incident-response control plan
 
 It accepts authenticated webhooks, preserves the original payload, normalizes events into a CloudEvents-compatible model, deduplicates concurrent deliveries, correlates events into incidents, evaluates explainable policies, notifies responders, runs durable response automation, and records an append-only audit trail.
 
-> **Current status:** Milestones 0–3 are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API SDKs, process-plugin SDKs, and a live conformance runner. Milestone 4 includes OpenTelemetry tracing, provisioned Prometheus alerts, Grafana operations dashboards, and alert-specific runbooks. The web UI, Kubernetes packaging, backup/restore automation, and release automation remain later work.
+> **Current status:** Milestones 0–3 are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API SDKs, process-plugin SDKs, and a live conformance runner. Milestone 4 includes OpenTelemetry tracing, provisioned Prometheus alerts, Grafana operations dashboards, alert-specific runbooks, and an automated PostgreSQL backup/restore drill. The web UI, Kubernetes packaging, and release automation remain later work.
 
 ## Why not only Alertmanager or a webhook router?
 
@@ -131,9 +131,10 @@ make test
 make test-race
 make build
 make compose-smoke
+make backup-restore-drill
 ```
 
-Integration tests require PostgreSQL and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, Plugin Conformance, Observability Config validation, and CodeQL.
+Integration tests require PostgreSQL and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, Plugin Conformance, Observability Config validation, the PostgreSQL backup/restore drill, and CodeQL.
 
 ## Project status and releases
 
