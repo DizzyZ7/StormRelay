@@ -55,11 +55,65 @@ Optional OTLP/gRPC tracing connects inbound HTTP requests to persisted events an
 
 ## Backup and restore
 
-For PostgreSQL, use consistent logical or physical backups with encryption. Stop application writes or use a database-native consistent snapshot. Restore PostgreSQL before starting workers. Preserve the master key independently.
+PostgreSQL is the source of truth for canonical events, deduplication history, incidents, runbook state, notification delivery state, identity, and audit. JetStream is a durable transport and replay source; it is not a replacement for a database backup.
 
-JetStream contains messages that may be redelivered after a database restore. This is safe only if the restored database includes the corresponding deduplication history. Restoring JetStream to a newer point than PostgreSQL can recreate canonical events outside the restored dedupe window. Document the recovery point and inspect the dead-letter subject.
+Back up `STORMRELAY_MASTER_KEY` through a separate encrypted secret-management path. A database dump without the matching master key preserves encrypted bytes but cannot recover source credentials or acknowledgement secrets. Never place the key in the dump archive, CI artifact, command history, or operator ticket.
 
-A complete tested backup/restore drill is tracked in issue #3.
+### Tested local drill
+
+Run the destructive, isolated Compose drill from the repository root:
+
+```bash
+make backup-restore-drill
+```
+
+The drill uses its own Compose project and volumes. It:
+
+1. creates a real HMAC source and processes a signed event into raw-event, normalized-event, incident, notification, and audit state;
+2. stops server and worker writes at a defined recovery point;
+3. creates a custom-format logical PostgreSQL backup;
+4. restores into a newly created database rather than restoring over live tables;
+5. compares deterministic counts and SHA-256 fingerprints for migrations, tenants, encrypted source configuration, raw-event metadata, normalized events, duplicates, incidents, transitions, and audit entries;
+6. recomputes every stored raw-payload SHA-256 without printing payloads;
+7. checks key foreign-key relationships and verifies that the append-only audit trigger still rejects mutation;
+8. publishes the exact persisted event envelope again to model JetStream redelivery and verifies one canonical event plus an auditable duplicate;
+9. submits a fresh signed webhook using the restored encrypted source credential.
+
+The workflow `.github/workflows/backup-restore.yml` executes the same drill for storage, messaging, worker, migration, and Compose changes. Its uploaded diagnostic log contains no source credential, raw payload, database dump, or invariant values.
+
+### Production backup procedure
+
+Choose logical or physical backups according to database size and recovery objectives. Test the exact mechanism against a representative environment; the Compose drill validates StormRelay invariants, not the throughput or retention characteristics of a production backup system.
+
+Before backup:
+
+1. record the StormRelay version, expected migration version, PostgreSQL version, JetStream stream/consumer identity, and intended recovery timestamp;
+2. establish a consistent recovery point by quiescing ingress and stopping workers, or use a database-native snapshot that is transactionally consistent while writes continue;
+3. confirm no schema migration is running;
+4. back up the master key separately and verify that both backup sets have independent access controls;
+5. create the database backup without embedding credentials in shell history or process arguments; use a protected PostgreSQL service file, `.pgpass`, workload identity, or the platform's secret injection mechanism;
+6. encrypt the archive at rest, retain checksums and immutable retention metadata, and test decryption before declaring the backup usable.
+
+A logical backup should use custom or directory format with ownership and privilege handling chosen for the restore target. Capture global objects separately only when the deployment relies on database roles or tablespaces not managed by the platform.
+
+### Production restore order
+
+1. keep all StormRelay server and worker processes stopped or removed from traffic;
+2. restore the matching master key through the secret manager, without exposing it to restore logs;
+3. restore PostgreSQL into a fresh database or fresh cluster and fail on restore errors;
+4. verify migration history, row counts, raw-payload hashes, incident/event links, audit triggers, and application ownership before switching traffic;
+5. start one server instance, verify `/readyz`, the version endpoint, and a read-only API request;
+6. start workers with bounded concurrency and monitor JetStream lag, duplicate counters, notification failures, runbook ambiguity, and the dead-letter subject;
+7. re-enable ingress only after restored credentials and representative signed test events succeed;
+8. retain the pre-restore database or snapshot until the recovery has passed the operational acceptance window.
+
+Do not run destructive down migrations after a newer application version has written data. Rollback means restoring a compatible recovery point or deploying a forward fix.
+
+### RPO, RTO, and JetStream redelivery
+
+The recovery point objective is bounded by the age of the PostgreSQL backup and the separately retained master key. The recovery time objective includes archive retrieval, database creation, restore, invariant verification, application startup, and controlled queue drain. Measure both with production-sized data; the repository does not publish invented RPO or RTO values.
+
+JetStream may contain messages newer than the restored PostgreSQL recovery point. Redelivery is safe when the restored database contains the matching deduplication bucket: StormRelay records a duplicate instead of creating another canonical event. If JetStream is ahead of PostgreSQL, messages after the database recovery point are processed as new work. If PostgreSQL is restored from before an earlier event's deduplication history, the same message can create a new canonical event outside the restored window. Record both recovery points, inspect consumer state and `<subject>.dlq`, and never purge the stream merely to make lag disappear.
 
 ## Migration strategy
 
