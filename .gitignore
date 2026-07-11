@@ -1,5 +1,6 @@
 /bin/
 /coverage.out
+/.benchmark-results/
 *.test
 *.prof
 .env
