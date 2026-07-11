@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -108,9 +110,9 @@ func StartEventConsumerSpan(ctx context.Context, traceParent, eventID, eventType
 		trace.WithAttributes(
 			attribute.String("messaging.system", "nats"),
 			attribute.String("messaging.operation.name", "process"),
-			attribute.String("messaging.message.id", boundedSpanAttribute(eventID)),
-			attribute.String("event.type", boundedSpanAttribute(eventType)),
-			attribute.String("event.source", boundedSpanAttribute(source)),
+			attribute.String("messaging.message.id", digestSpanAttribute(eventID)),
+			attribute.String("event.type", digestSpanAttribute(eventType)),
+			attribute.String("event.source", digestSpanAttribute(source)),
 		),
 	)
 }
@@ -121,6 +123,11 @@ func RecordSpanError(span trace.Span, err error) {
 	}
 	span.RecordError(err)
 	span.SetStatus(codes.Error, "operation failed")
+}
+
+func digestSpanAttribute(value string) string {
+	digest := sha256.Sum256([]byte(strings.ToValidUTF8(value, "\uFFFD")))
+	return hex.EncodeToString(digest[:])
 }
 
 func boundedSpanAttribute(value string) string {
