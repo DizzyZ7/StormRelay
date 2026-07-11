@@ -10,6 +10,8 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+const defaultMaxDeliveries = 5
+
 type Bus struct {
 	nc                        *nats.Conn
 	js                        nats.JetStreamContext
@@ -77,7 +79,13 @@ func (b *Bus) PublishEvent(ctx context.Context, e events.Event, msgID string) er
 	return nil
 }
 func (b *Bus) Subscription() (*nats.Subscription, error) {
-	return b.js.PullSubscribe(b.subject, b.consumer, nats.BindStream(b.stream), nats.ManualAck(), nats.AckExplicit(), nats.AckWait(30*time.Second), nats.MaxDeliver(5), nats.MaxAckPending(256))
+	return b.SubscriptionWithMaxDeliveries(defaultMaxDeliveries)
+}
+func (b *Bus) SubscriptionWithMaxDeliveries(maxDeliveries int) (*nats.Subscription, error) {
+	if maxDeliveries < 2 {
+		maxDeliveries = defaultMaxDeliveries
+	}
+	return b.js.PullSubscribe(b.subject, b.consumer, nats.BindStream(b.stream), nats.ManualAck(), nats.AckExplicit(), nats.AckWait(30*time.Second), nats.MaxDeliver(maxDeliveries), nats.MaxAckPending(256))
 }
 func (b *Bus) PublishDLQ(original *nats.Msg, reason string) error {
 	msg := nats.NewMsg(b.subject + ".dlq")
