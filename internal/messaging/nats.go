@@ -3,6 +3,7 @@ package messaging
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -94,10 +95,26 @@ func (b *Bus) SubscriptionWithMaxDeliveries(maxDeliveries int) (*nats.Subscripti
 		FilterSubject: b.subject,
 		ReplayPolicy:  nats.ReplayInstantPolicy,
 	}
-	if _, err := b.js.AddConsumer(b.stream, cfg); err != nil {
+	if err := b.reconcileConsumer(cfg); err != nil {
 		return nil, fmt.Errorf("reconcile JetStream consumer: %w", err)
 	}
 	return b.js.PullSubscribe(b.subject, b.consumer, nats.Bind(b.stream, b.consumer))
+}
+func (b *Bus) reconcileConsumer(cfg *nats.ConsumerConfig) error {
+	if _, err := b.js.UpdateConsumer(b.stream, cfg); err == nil {
+		return nil
+	} else if !errors.Is(err, nats.ErrConsumerNotFound) {
+		return err
+	}
+	if _, err := b.js.AddConsumer(b.stream, cfg); err == nil {
+		return nil
+	} else if !errors.Is(err, nats.ErrConsumerNameAlreadyInUse) {
+		return err
+	}
+	// Another worker may create the durable between the failed update and add.
+	// Re-run the update so all replicas converge on the configured retry policy.
+	_, err := b.js.UpdateConsumer(b.stream, cfg)
+	return err
 }
 func (b *Bus) PublishDLQ(original *nats.Msg, reason string) error {
 	msg := nats.NewMsg(b.subject + ".dlq")
