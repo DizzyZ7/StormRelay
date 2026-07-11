@@ -25,5 +25,11 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - Dedicated `promtool`, Compose-model, dashboard-JSON, contract, and live provisioning checks.
 - Automated PostgreSQL backup/restore drill with deterministic data fingerprints, raw-payload SHA-256 verification, foreign-key and append-only audit checks, restored encrypted credential validation, and JetStream redelivery deduplication coverage.
 - Reusable guarded PostgreSQL backup/restore helpers with atomic archive publication, SHA-256 verification, explicit confirmation, no-overwrite behavior, non-empty-target refusal, and a dedicated helper contract test.
+- Dedicated failure-injection workflow for PostgreSQL/NATS outages, concurrent duplicates, poison messages and DLQ, runbook lease recovery, process restart, plugin timeout/malformed responses, and notification-provider failures.
+- Configurable event delivery limit and capped exponential backoff with deterministic jitter.
+
+### Fixed
+
+- Release HMAC replay reservations when normalization or JetStream durable acceptance fails, allowing an identical signed request to be retried after a `503` response while retaining replay protection after `202 Accepted`.
 
 No v0.1.0 release has been claimed yet.
