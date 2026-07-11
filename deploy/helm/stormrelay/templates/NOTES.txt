@@ -1,0 +1,21 @@
+StormRelay {{ .Chart.AppVersion }} was installed.
+
+Server service:
+  {{ include "stormrelay.fullname" . }}-server:{{ .Values.service.port }}
+
+Check readiness:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "stormrelay.fullname" . }}-server 8080:{{ .Values.service.port }}
+  curl -fsS http://127.0.0.1:8080/readyz
+
+{{- if .Values.ingress.enabled }}
+Configured ingress hosts:
+{{- range .Values.ingress.hosts }}
+  - {{ .host }}
+{{- end }}
+{{- end }}
+
+Security reminders:
+  - Application and database credentials are read only from existing Secrets.
+  - NetworkPolicy is fail-closed for external egress. Add explicit rules for external PostgreSQL, NATS, OTLP, plugin, notification, and runbook destinations.
+  - demoDependencies are not a production database or NATS deployment.
+  - Back up PostgreSQL and STORMRELAY_MASTER_KEY separately before upgrades.

@@ -1,0 +1,189 @@
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+secrets:
+  existingSecret: ""
+  masterKeyKey: master-key
+  bootstrapAPIKeyKey: bootstrap-api-key
+
+database:
+  url: ""
+  existingSecret: ""
+  urlKey: database-url
+nats:
+  url: ""
+  existingSecret: ""
+  urlKey: nats-url
+
+config:
+  publicBaseURL: http://stormrelay.example.invalid
+  defaultTenantID: 00000000-0000-4000-8000-000000000001
+  workerConcurrency: 8
+  runbookConcurrency: 4
+  eventMaxDeliveries: 5
+  eventRetryBaseDelay: 1s
+  eventRetryMaxDelay: 30s
+  runbookHTTPAllowedHosts: ""
+  pluginAllowedHosts: ""
+  allowUnauthenticatedSources: false
+  otlpTraceEndpoint: ""
+  traceSampleRatio: 0.10
+  traceExportTimeout: 10s
+  extraEnv: []
+
+server:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/dizzyz7/stormrelay-server
+    tag: ""
+    pullPolicy: IfNotPresent
+  podAnnotations: {}
+  podLabels: {}
+  priorityClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    privileged: false
+    readOnlyRootFilesystem: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  terminationGracePeriodSeconds: 30
+
+worker:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/dizzyz7/stormrelay-worker
+    tag: ""
+    pullPolicy: IfNotPresent
+  podAnnotations: {}
+  podLabels: {}
+  priorityClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 768Mi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    privileged: false
+    readOnlyRootFilesystem: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  terminationGracePeriodSeconds: 45
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+workerService:
+  enabled: true
+  type: ClusterIP
+  port: 8081
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: stormrelay.example.invalid
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+podDisruptionBudget:
+  server:
+    enabled: true
+    minAvailable: 1
+  worker:
+    enabled: true
+    minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  allowDNS: true
+  allowSameNamespaceEgress: true
+  ingressNamespaceSelector: {}
+  ingressPodSelector: {}
+  additionalEgress: []
+
+# Demo dependencies are intentionally disabled by default. They are suitable for
+# local/kind validation only. Credentials are still supplied through an existing
+# Secret; this chart never generates or stores production credentials in values.
+demoDependencies:
+  enabled: false
+  existingSecret: ""
+  postgres:
+    image:
+      repository: postgres
+      tag: 17-alpine
+      pullPolicy: IfNotPresent
+    usernameKey: postgres-user
+    passwordKey: postgres-password
+    databaseKey: postgres-database
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  nats:
+    image:
+      repository: nats
+      tag: 2.11-alpine
+      pullPolicy: IfNotPresent
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi

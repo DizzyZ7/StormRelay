@@ -1,0 +1,67 @@
+secrets:
+  existingSecret: stormrelay-app
+
+database:
+  existingSecret: stormrelay-demo
+  urlKey: database-url
+
+config:
+  publicBaseURL: http://127.0.0.1:18080
+  workerConcurrency: 2
+  runbookConcurrency: 1
+  traceSampleRatio: 0
+
+server:
+  replicaCount: 1
+  image:
+    repository: stormrelay-server
+    tag: kind-smoke
+    pullPolicy: Never
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+worker:
+  replicaCount: 1
+  image:
+    repository: stormrelay-worker
+    tag: kind-smoke
+    pullPolicy: Never
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
+
+podDisruptionBudget:
+  server:
+    enabled: false
+    minAvailable: 0
+  worker:
+    enabled: false
+    minAvailable: 0
+
+networkPolicy:
+  enabled: true
+  allowDNS: true
+  allowSameNamespaceEgress: true
+
+demoDependencies:
+  enabled: true
+  existingSecret: stormrelay-demo
+  postgres:
+    persistence:
+      enabled: false
+      size: 1Gi
+      storageClass: ""
+  nats:
+    persistence:
+      enabled: false
+      size: 1Gi
+      storageClass: ""
