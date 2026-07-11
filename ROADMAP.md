@@ -43,9 +43,10 @@ Implemented foundation:
 - static `promtool`/Compose/dashboard validation and live provisioning smoke tests;
 - automated PostgreSQL backup/restore drill with data fingerprints, raw-payload hash verification, audit-trigger validation, restored credential checks, and JetStream redelivery deduplication coverage;
 - deterministic failure injection for PostgreSQL and NATS outages, concurrent duplicate delivery, poison messages and DLQ, runbook lease recovery, control-plane restart, plugin failures, and notification-provider failures;
-- configurable capped event redelivery with deterministic jitter and fail-closed HMAC replay reservations around the JetStream acknowledgement boundary.
+- configurable capped event redelivery with deterministic jitter and fail-closed HMAC replay reservations around the JetStream acknowledgement boundary;
+- explicit PostgreSQL schema v6-to-v7 upgrade drill with legacy encrypted credentials, service-account authentication, OIDC constraint verification, migration-history checks, and future-version fixture enforcement.
 
-Remaining: broader application spans, benchmark harness, and upgrade tests.
+Remaining: broader application spans and benchmark harness.
 
 ## Milestone 5 — Kubernetes and release
 
