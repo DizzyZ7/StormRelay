@@ -26,6 +26,7 @@ func New(logger *slog.Logger, telegramToken string) *Notifier {
 	return &Notifier{client: &http.Client{Timeout: 10 * time.Second}, logger: logger, telegramToken: telegramToken}
 }
 func (n *Notifier) Deliver(ctx context.Context, d storage.Delivery) (ref string, err error) {
+	ctx = telemetry.ContextWithTraceParent(ctx, d.TraceParent)
 	deliveryCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.notification.deliver", trace.SpanKindProducer,
 		telemetry.StringAttribute("stormrelay.notification.kind", d.Kind),
 		telemetry.IntAttribute("stormrelay.notification.attempt", d.Attempt),
