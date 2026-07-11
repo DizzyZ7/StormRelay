@@ -117,10 +117,22 @@ func (s *Server) ingestWebhook(w http.ResponseWriter, r *http.Request) {
 	replayKey := ""
 	replayCommitted := false
 	if creds.Source.AuthMode == ingestion.AuthHMAC {
-		replayKey = sourceID + ":" + r.Header.Get("X-StormRelay-Timestamp") + ":" + r.Header.Get("X-StormRelay-Signature")
-		if !s.replay.Accept(replayKey, time.Now().Add(s.cfg.ReplayWindow), time.Now()) {
+		replayKey, err = ingestion.CanonicalHMACReplayKey(sourceID, r.Header.Get("X-StormRelay-Timestamp"), r.Header.Get("X-StormRelay-Signature"))
+		if err != nil {
+			s.metrics.RejectedEvents.Add(1)
+			writeError(w, r, http.StatusUnauthorized, "signature_invalid", "invalid signed request", nil)
+			return
+		}
+		now := time.Now()
+		switch s.replay.Reserve(replayKey, now.Add(s.cfg.ReplayWindow), now) {
+		case ingestion.ReplayDuplicate:
 			s.metrics.RejectedEvents.Add(1)
 			writeError(w, r, http.StatusConflict, "replay_rejected", "request was already accepted", nil)
+			return
+		case ingestion.ReplayCapacityExceeded:
+			w.Header().Set("Retry-After", "1")
+			s.metrics.RejectedEvents.Add(1)
+			writeError(w, r, http.StatusServiceUnavailable, "replay_protection_unavailable", "replay protection is temporarily unavailable", nil)
 			return
 		}
 		defer func() {
