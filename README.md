@@ -4,7 +4,7 @@ StormRelay is a self-hosted event-correlation and incident-response control plan
 
 It accepts authenticated webhooks, preserves the original payload, normalizes events into a CloudEvents-compatible model, deduplicates concurrent deliveries, correlates events into incidents, evaluates explainable policies, notifies responders, runs durable response automation, and records an append-only audit trail.
 
-> **Current status:** Milestones 0–3 are implemented on `main`: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API SDKs, process-plugin SDKs, and a live conformance runner. Milestone 4 includes OpenTelemetry tracing, provisioned Prometheus alerts, Grafana operations dashboards, alert-specific runbooks, an automated PostgreSQL backup/restore drill, deterministic failure-injection coverage, and a reproducible Go/PostgreSQL/k6 benchmark harness with schema-validated result artifacts. The web UI, Kubernetes packaging, and release automation remain later work.
+> **Current status:** Milestones 0–4 are implemented: ingestion, incident lifecycle, policy evaluation, notification delivery, durable runbooks, process plugins, tenant-scoped service accounts, fail-closed RBAC, guarded OIDC federation, supported API and plugin SDKs, production reliability drills, reproducible benchmarks, and connected OpenTelemetry traces across events, notifications, runbooks, and plugins. The web UI, Kubernetes packaging, and release automation remain Milestone 5 work.
 
 ## Why not only Alertmanager or a webhook router?
 
@@ -26,10 +26,12 @@ The development API key is `local-development-only-change-me`. It is intentional
 The Compose stack also exposes:
 
 - Prometheus at `http://localhost:9090` with StormRelay alert rules loaded;
-- Grafana at `http://localhost:3000` with the `StormRelay Operations` dashboard pre-provisioned;
+- Grafana at `http://localhost:3000` with the operations dashboard and Tempo datasource pre-provisioned;
+- Tempo at `http://localhost:3200` for trace queries;
+- OpenTelemetry Collector OTLP/gRPC at `localhost:4317` and health at `localhost:13133`;
 - development-only Grafana credentials `admin` / `admin`.
 
-Replace the Grafana credentials and authentication configuration before exposing it outside a trusted development network.
+The demo samples every trace so the asynchronous event, notification, plugin, and runbook paths are visible immediately. Replace credentials, sampling, storage, retention, and network policy before exposing this stack outside a trusted development network.
 
 Create a generic HMAC source:
 
@@ -59,6 +61,8 @@ curl -i \
   "http://localhost:8080/api/v1/webhooks/$SOURCE_ID"
 ```
 
+The response includes `traceparent`. Use its trace ID in Grafana Explore with the `StormRelay Tempo` datasource to inspect the connected asynchronous path.
+
 List incidents:
 
 ```bash
@@ -69,7 +73,7 @@ curl -fsS \
 
 ## Configuration
 
-All server and worker settings use the `STORMRELAY_` prefix, except the standard OpenTelemetry endpoint variables. See `.env.example`, `docs/operations.md`, `docs/observability.md`, `docs/failure-testing.md`, and `tests/load/README.md` for development, reliability, and benchmark configuration.
+All server and worker settings use the `STORMRELAY_` prefix, except the standard OpenTelemetry endpoint variables. See `.env.example`, `docs/operations.md`, `docs/observability.md`, `docs/failure-testing.md`, and `tests/load/README.md` for development, reliability, tracing, and benchmark configuration.
 
 Important security and reliability settings include:
 
@@ -86,6 +90,8 @@ Optional tracing settings include:
 - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: OTLP/gRPC collector URL; leave empty to disable export.
 - `STORMRELAY_OTEL_TRACE_SAMPLE_RATIO`: parent-based root sampling ratio from `0` to `1`, default `0.10`.
 - `STORMRELAY_OTEL_EXPORT_TIMEOUT`: bounded export timeout, default `10s`.
+
+Only W3C `traceparent` is persisted across JetStream, notification outbox, and durable runbook boundaries. Baggage, payloads, credentials, provider error bodies, and user identifiers are excluded from spans.
 
 OIDC providers are registered through the tenant-admin API rather than environment variables. Registration performs guarded discovery and stores the exact issuer, API audience, JWKS URI, and allowed asymmetric signing algorithms. See `docs/identity.md`.
 
@@ -123,7 +129,7 @@ Supported Go and Python process-plugin server SDKs implement `stormrelay.plugin/
 - OIDC email claims are not used for account linking; provider subjects require explicit tenant-admin mappings.
 - The server never logs service-account credentials, OIDC tokens, webhook secrets, or raw authorization headers.
 - Protected API routes are fail-closed: new route families require an explicit permission mapping.
-- Trace spans exclude authorization headers, credentials, raw request/event payloads, notification bodies, and unbounded labels.
+- Trace spans exclude authorization headers, credentials, raw request/event/plugin/notification payloads, SQL text, provider error bodies, user identifiers, and unbounded labels.
 
 See `SECURITY.md`, `docs/threat-model.md`, `docs/identity.md`, `docs/observability.md`, `docs/failure-testing.md`, and `docs/alert-runbooks.md` for details.
 
@@ -143,7 +149,7 @@ make benchmark-full
 
 The benchmark harness does not publish performance claims in this README. Generated results include the commit, profile, hardware, dependency versions, p50/p95/p99, error rate, and raw measurement artifacts; see `tests/load/README.md`.
 
-Integration, failure, and benchmark tests require Docker, PostgreSQL, and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, Compose E2E, SDK tests, Identity Smoke, Plugin Conformance, Observability Config validation, the PostgreSQL backup/restore drill, dedicated failure injection, a lightweight benchmark correctness profile, and CodeQL.
+Integration, failure, benchmark, and Compose tests require Docker, PostgreSQL, and NATS. GitHub Actions runs dependency-lock verification, formatting, vet, the race detector, binary builds, PostgreSQL/NATS integration, full Compose E2E with live Tempo traces, SDK tests, Identity Smoke, Plugin Conformance, observability validation, backup/restore and upgrade drills, dedicated failure injection, a lightweight benchmark correctness profile, and CodeQL.
 
 ## Project status and releases
 
