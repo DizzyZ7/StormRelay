@@ -12,12 +12,20 @@ if [[ ! -f "$PROFILE_PATH" ]]; then
 fi
 
 PROJECT_NAME=${STORMRELAY_BENCHMARK_PROJECT:-stormrelay-benchmark-${PROFILE_NAME}}
-COMPOSE=(docker compose --project-name "$PROJECT_NAME" -f deploy/compose/docker-compose.yml)
+POSTGRES_PORT=${STORMRELAY_BENCHMARK_POSTGRES_PORT:-55432}
+export STORMRELAY_BENCHMARK_POSTGRES_PORT="$POSTGRES_PORT"
+COMPOSE=(
+  docker compose
+  --project-name "$PROJECT_NAME"
+  -f deploy/compose/docker-compose.yml
+  -f tests/load/docker-compose.yml
+)
 OUTPUT_DIR=${STORMRELAY_BENCHMARK_OUTPUT_DIR:-$ROOT_DIR/.benchmark-results/$PROFILE_NAME}
 GO_BENCHMARK_PATH="$OUTPUT_DIR/go-benchmark.txt"
 K6_SUMMARY_PATH="$OUTPUT_DIR/k6-summary.json"
 RESULT_PATH="$OUTPUT_DIR/result.json"
 AUTH_KEY=${STORMRELAY_BENCHMARK_API_KEY:-local-development-only-change-me}
+DATABASE_URL="postgres://stormrelay:stormrelay@localhost:${POSTGRES_PORT}/stormrelay?sslmode=disable"
 
 cleanup() {
   status=$?
@@ -100,7 +108,7 @@ go test \
 echo 'Starting isolated PostgreSQL transaction benchmark phase'
 "${COMPOSE[@]}" up -d --wait --wait-timeout 60 postgres
 printf '\n# StormRelay PostgreSQL processing benchmarks\n' >>"$GO_BENCHMARK_PATH"
-STORMRELAY_TEST_DATABASE_URL='postgres://stormrelay:stormrelay@localhost:5432/stormrelay?sslmode=disable' \
+STORMRELAY_TEST_DATABASE_URL="$DATABASE_URL" \
   go test \
     -tags=benchmark \
     -run '^$' \
@@ -143,7 +151,9 @@ python3 tests/load/capture_result.py \
   --go-benchmark "$GO_BENCHMARK_PATH" \
   --output "$RESULT_PATH" \
   --commit-sha "$(git rev-parse HEAD)" \
-  --base-url 'http://localhost:8080'
+  --base-url 'http://localhost:8080' \
+  --database-target "postgresql://localhost:${POSTGRES_PORT}/stormrelay" \
+  --nats-target 'nats://localhost:4222'
 
 python3 tests/load/validate_result.py tests/load/result.schema.json "$RESULT_PATH"
 
