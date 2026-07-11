@@ -22,6 +22,15 @@ const acceptedEvents = new Counter('stormrelay_accepted_events');
 const durableEvents = new Counter('stormrelay_durable_events');
 const duplicateRequests = new Counter('stormrelay_duplicate_requests');
 
+const thresholds = {
+  stormrelay_errors: ['rate==0'],
+  stormrelay_accepted_events: ['count>0'],
+  stormrelay_durable_events: ['count>0'],
+};
+if (DUPLICATE_RATIO > 0) {
+  thresholds.stormrelay_duplicate_requests = ['count>0'];
+}
+
 export const options = {
   discardResponseBodies: false,
   summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'p(99)', 'max', 'count'],
@@ -42,11 +51,7 @@ export const options = {
       gracefulStop: `${Math.max(1, INCIDENT_TIMEOUT_SECONDS)}s`,
     },
   },
-  thresholds: {
-    stormrelay_errors: ['rate==0'],
-    stormrelay_accepted_events: ['count>0'],
-    stormrelay_durable_events: ['count>0'],
-  },
+  thresholds,
 };
 
 let warmupLastCanonical = null;
@@ -205,7 +210,10 @@ function deterministicDuplicate(vu, iteration) {
   if (DUPLICATE_RATIO >= 1) {
     return true;
   }
-  const bucket = ((iteration + 1) * 1103515245 + vu * 12345) % 10000;
+
+  // 6181 is coprime to 10000, so the sequence covers every bucket instead of
+  // clustering on a small subset. It also exercises short CI profiles early.
+  const bucket = ((iteration + vu) * 6181) % 10000;
   return bucket < Math.floor(DUPLICATE_RATIO * 10000);
 }
 
