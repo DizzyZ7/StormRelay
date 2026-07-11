@@ -102,11 +102,10 @@ func (w *Worker) handleMessage(ctx context.Context, msg *nats.Msg) {
 	}
 	w.metrics.ObserveEventLatency(time.Since(started))
 
-	ackCtx, ackSpan := telemetry.StartOperationSpan(messageCtx, "stormrelay.nats.ack", trace.SpanKindClient,
+	_, ackSpan := telemetry.StartOperationSpan(messageCtx, "stormrelay.nats.ack", trace.SpanKindClient,
 		telemetry.StringAttribute("messaging.system", "nats"),
 		telemetry.StringAttribute("messaging.operation.name", "ack"),
 	)
-	_ = ackCtx
 	if err := msg.AckSync(); err != nil {
 		telemetry.MarkSpanError(ackSpan)
 		telemetry.SetSpanOutcome(ackSpan, "failed")
@@ -154,13 +153,26 @@ func (w *Worker) deliveryLoop(ctx context.Context) {
 				continue
 			}
 			for _, delivery := range deliveries {
-				ref, deliverErr := w.notifier.Deliver(ctx, delivery)
-				if err := w.store.CompleteDelivery(ctx, delivery.ID, ref, deliverErr); err != nil {
-					telemetry.Log(ctx, w.logger, slog.LevelError, "update delivery failed", "delivery_id", delivery.ID, "error", err)
+				deliveryCtx := telemetry.ContextWithTraceParent(ctx, delivery.TraceParent)
+				ref, deliverErr := w.notifier.Deliver(deliveryCtx, delivery)
+				completionCtx, completionSpan := telemetry.StartOperationSpan(deliveryCtx, "stormrelay.notification.complete", trace.SpanKindClient,
+					telemetry.StringAttribute("db.system.name", "postgresql"),
+					telemetry.StringAttribute("stormrelay.notification.kind", delivery.Kind),
+				)
+				completeErr := w.store.CompleteDelivery(completionCtx, delivery.ID, ref, deliverErr)
+				if completeErr != nil {
+					telemetry.MarkSpanError(completionSpan)
+					telemetry.SetSpanOutcome(completionSpan, "failed")
+					telemetry.Log(deliveryCtx, w.logger, slog.LevelError, "update delivery failed", "delivery_id", delivery.ID, "error", completeErr)
+				} else if deliverErr != nil {
+					telemetry.SetSpanOutcome(completionSpan, "retry_scheduled")
+				} else {
+					telemetry.SetSpanOutcome(completionSpan, "committed")
 				}
+				completionSpan.End()
 				if deliverErr != nil {
 					w.metrics.NotificationFailures.Add(1)
-					telemetry.Log(ctx, w.logger, slog.LevelWarn, "notification delivery failed", "delivery_id", delivery.ID, "kind", delivery.Kind, "error", sanitize(deliverErr.Error()))
+					telemetry.Log(deliveryCtx, w.logger, slog.LevelWarn, "notification delivery failed", "delivery_id", delivery.ID, "kind", delivery.Kind, "error", sanitize(deliverErr.Error()))
 				}
 			}
 		}
