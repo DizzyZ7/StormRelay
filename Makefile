@@ -31,4 +31,4 @@ smoke:
 	./tests/smoke-compose.sh
 
 backup-restore-drill:
-	./tests/failure/backup-restore.sh
+	bash ./tests/failure/backup-restore.sh
