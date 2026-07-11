@@ -64,3 +64,13 @@ func TraceParentFromContext(ctx context.Context) string {
 	propagation.TraceContext{}.Inject(ctx, carrier)
 	return strings.TrimSpace(carrier.Get("traceparent"))
 }
+
+// ContextWithTraceParent restores a persisted W3C parent while deliberately
+// ignoring baggage and every other carrier field.
+func ContextWithTraceParent(ctx context.Context, traceParent string) context.Context {
+	traceParent = strings.TrimSpace(traceParent)
+	if traceParent == "" {
+		return ctx
+	}
+	return propagation.TraceContext{}.Extract(ctx, propagation.MapCarrier{"traceparent": traceParent})
+}
