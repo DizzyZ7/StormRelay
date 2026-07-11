@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/DizzyZ7/StormRelay/internal/storage"
+	"github.com/DizzyZ7/StormRelay/internal/telemetry"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Notifier struct {
@@ -23,18 +25,46 @@ type Notifier struct {
 func New(logger *slog.Logger, telegramToken string) *Notifier {
 	return &Notifier{client: &http.Client{Timeout: 10 * time.Second}, logger: logger, telegramToken: telegramToken}
 }
-func (n *Notifier) Deliver(ctx context.Context, d storage.Delivery) (string, error) {
+func (n *Notifier) Deliver(ctx context.Context, d storage.Delivery) (ref string, err error) {
+	deliveryCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.notification.deliver", trace.SpanKindProducer,
+		telemetry.StringAttribute("stormrelay.notification.kind", d.Kind),
+		telemetry.IntAttribute("stormrelay.notification.attempt", d.Attempt),
+	)
+	defer func() {
+		if err != nil {
+			telemetry.MarkSpanError(span)
+			telemetry.SetSpanOutcome(span, "failed")
+		} else {
+			telemetry.SetSpanOutcome(span, "delivered")
+		}
+		span.End()
+	}()
+
 	switch d.Kind {
 	case "mock":
-		n.logger.InfoContext(ctx, "mock notification delivered", "delivery_id", d.ID, "incident_id", d.IncidentID, "dedupe_key", d.DedupeKey)
+		n.logger.InfoContext(deliveryCtx, "mock notification delivered", "delivery_id", d.ID, "incident_id", d.IncidentID, "dedupe_key", d.DedupeKey)
 		return "mock:" + d.ID, nil
 	case "telegram":
-		return n.telegram(ctx, d)
+		return n.telegram(deliveryCtx, d)
 	default:
 		return "", fmt.Errorf("unsupported notification channel kind %q", d.Kind)
 	}
 }
-func (n *Notifier) telegram(ctx context.Context, d storage.Delivery) (string, error) {
+func (n *Notifier) telegram(ctx context.Context, d storage.Delivery) (ref string, err error) {
+	requestCtx, span := telemetry.StartOperationSpan(ctx, "stormrelay.notification.provider_request", trace.SpanKindClient,
+		telemetry.StringAttribute("server.address", "api.telegram.org"),
+		telemetry.StringAttribute("http.request.method", http.MethodPost),
+	)
+	defer func() {
+		if err != nil {
+			telemetry.MarkSpanError(span)
+			telemetry.SetSpanOutcome(span, "failed")
+		} else {
+			telemetry.SetSpanOutcome(span, "succeeded")
+		}
+		span.End()
+	}()
+
 	if n.telegramToken == "" {
 		return "", fmt.Errorf("telegram adapter is not configured")
 	}
@@ -66,16 +96,18 @@ func (n *Notifier) telegram(ctx context.Context, d storage.Delivery) (string, er
 	text += "\nAcknowledge: " + payload.AckURL
 	body, _ := json.Marshal(map[string]any{"chat_id": cfg.ChatID, "text": text, "disable_web_page_preview": cfg.DisablePreview})
 	url := "https://api.telegram.org/bot" + n.telegramToken + "/sendMessage"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	telemetry.InjectHTTPTrace(requestCtx, req.Header)
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("telegram request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	span.SetAttributes(telemetry.IntAttribute("http.response.status_code", resp.StatusCode))
 	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("telegram returned HTTP %d", resp.StatusCode)
