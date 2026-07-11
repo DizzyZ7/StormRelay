@@ -19,6 +19,7 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - Supported Go and Python process-plugin server SDKs, a production-client conformance runner, cross-language Docker compatibility testing, and protocol compatibility guidance.
 - Optional OpenTelemetry tracing with OTLP/gRPC export, W3C HTTP-to-event-to-worker propagation, parent-based sampling, bounded batching, graceful shutdown flush, and trace-correlated structured logs.
 - Real HTTP propagation, JetStream consumer propagation, configuration-boundary, and in-process OTLP receiver tests.
+- Persisted `traceparent` continuity across notification outbox and durable runbook execution, process-plugin/provider spans, and a bounded Collector/Tempo/Grafana demo with live trace-safety smoke tests.
 - Version-controlled Prometheus alert rules for availability, event-pipeline stalls, JetStream backlog, PostgreSQL pool saturation, incident load, ingress rejection, runbook, plugin, and notification failures.
 - Automatically provisioned Grafana datasource and StormRelay operations dashboard.
 - Alert-specific operator runbooks with diagnosis, safe mitigation, and closure criteria.
