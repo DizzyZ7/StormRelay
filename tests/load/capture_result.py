@@ -52,6 +52,25 @@ def command_output(command: list[str], fallback: str) -> str:
     return value or fallback
 
 
+def docker_image_identity(reference: str) -> str:
+    image_id = command_output(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+        "unavailable",
+    )
+    repo_digests = command_output(
+        [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            "{{join .RepoDigests \",\"}}",
+            reference,
+        ],
+        "none",
+    )
+    return f"{reference}; image_id={image_id}; repo_digests={repo_digests}"
+
+
 def cpu_model() -> str:
     try:
         for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
@@ -190,9 +209,15 @@ def main() -> int:
                     "docker_compose": command_output(
                         ["docker", "compose", "version", "--short"], "unavailable"
                     ),
-                    "k6": str(dependencies.get("k6_image", "unavailable")),
-                    "postgres": str(dependencies.get("postgres_image", "unavailable")),
-                    "nats": str(dependencies.get("nats_image", "unavailable")),
+                    "k6": docker_image_identity(
+                        str(dependencies.get("k6_image", "unavailable"))
+                    ),
+                    "postgres": docker_image_identity(
+                        str(dependencies.get("postgres_image", "unavailable"))
+                    ),
+                    "nats": docker_image_identity(
+                        str(dependencies.get("nats_image", "unavailable"))
+                    ),
                 },
             },
             "configuration": {
