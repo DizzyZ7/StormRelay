@@ -10,6 +10,8 @@ It accepts authenticated webhooks, preserves the original payload, normalizes ev
 
 Alertmanager is excellent at grouping and routing Prometheus alerts. A webhook router forwards requests. StormRelay sits after or beside them when a team needs durable raw-event retention, cross-source deduplication, incident state, human acknowledgement, explainable policy decisions, recovery-aware automation, and an audit history shared by operations and security.
 
+Manual incident creation provisions a tenant-private internal event source on first use. Internal `manual-api` sources are reserved and never accept public webhook ingestion, including when other unauthenticated sources are explicitly allowed.
+
 StormRelay uses **at-least-once delivery**. It does not claim exactly-once processing. JetStream may redeliver; PostgreSQL uniqueness constraints and transactional consumers convert redelivery into an explicit duplicate record.
 
 ## Run the demo
