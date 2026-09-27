@@ -30,6 +30,10 @@ HMAC sources sign the timestamp and exact raw body. The gateway enforces a bound
 
 The gateway applies `http.MaxBytesReader` before reading. Ordinary control-plane JSON is capped at 1 MiB and requires exactly one valid document with known fields. Invalid or oversized caller-provided request IDs are replaced with generated UUIDs before logging, tracing, audit, or response reflection. JSON parsing has bounded input. Policy YAML has a separate limit, known-field decoding, and no arbitrary expression evaluation. Fuzz targets cover event and policy parsing.
 
+### Resource creation and audit consistency
+
+API-created event sources and notification channels are inserted in the same PostgreSQL transaction as their creation audit records. One-time HMAC/bearer source credentials are returned only after commit. Audit metadata excludes plaintext credentials and notification-channel configuration; an audit failure rolls back the resource insert instead of creating an untracked resource with a lost credential. Direct internal storage creation methods are not automatically audited and must not be exposed to untrusted HTTP clients.
+
 ### Secret disclosure
 
 Recoverable source secrets and acknowledgement tokens use AES-256-GCM with resource-bound additional authenticated data. Bearer credentials are hashed. Tokens, signatures, authorization headers, full payloads, and acknowledgement paths are excluded from structured logs and audit metadata. Source credentials are returned once.
