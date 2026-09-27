@@ -55,7 +55,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /metrics", s.metricsHandler)
-	mux.HandleFunc("GET /api/v1/ack/{token}", s.ackByToken)
+	mux.HandleFunc("GET /api/v1/ack/{token}", s.ackConfirmation)
 	mux.HandleFunc("POST /api/v1/ack/{token}", s.ackByToken)
 	mux.HandleFunc("POST /api/v1/webhooks/{sourceID}", s.ingestWebhook)
 	mux.Handle("/api/v1/", s.requireAuth(http.HandlerFunc(s.apiRoutes)))

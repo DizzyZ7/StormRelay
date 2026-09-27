@@ -152,6 +152,10 @@ Before upgrade:
 
 After five failed deliveries, the worker publishes the original event to `<subject>.dlq` with bounded sanitized failure metadata and acknowledges the original. Do not replay DLQ messages until the root cause is fixed. Replays must preserve or deliberately replace the idempotency key.
 
+## Acknowledgement link safety
+
+Telegram messages contain an acknowledgement URL. Opening or previewing that URL performs no state change: GET and HEAD show a confirmation form. An operator must explicitly submit the form to POST the token to the acknowledgement endpoint. The confirmation page sets a no-referrer policy, no-store cache control, restrictive CSP and anti-framing headers. Treat the URL itself as a 24-hour bearer capability and do not include it in logs, third-party analytics, or screenshots.
+
 ## Notification ambiguity
 
 A provider call can succeed remotely and fail locally before the result is saved. StormRelay records `ambiguous` when a delivery lease expires for an external provider. Operators should verify the provider before retrying. This is a deliberate rejection of fictional exactly-once notification semantics.
