@@ -36,7 +36,7 @@ func (s *Server) exportAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("Content-Disposition", "attachment; filename=stormrelay-audit.jsonl")
-	if err := s.store.ExportAuditJSONL(r.Context(), s.cfg.DefaultTenantID, after, w); err != nil {
+	if err := s.store.ExportAuditJSONL(r.Context(), tenantID(r), after, w); err != nil {
 		mapStoreError(w, r, err)
 	}
 }
@@ -47,7 +47,7 @@ func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "read_failed", "unable to read policy", nil)
 		return
 	}
-	out, err := s.store.ApplyPolicy(r.Context(), storage.ApplyPolicyInput{TenantID: s.cfg.DefaultTenantID, DocumentYAML: string(body), ActorID: "bootstrap-admin", RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context())})
+	out, err := s.store.ApplyPolicy(r.Context(), storage.ApplyPolicyInput{TenantID: tenantID(r), DocumentYAML: string(body), ActorID: actorID(r), RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context())})
 	if err != nil {
 		writeError(w, r, http.StatusUnprocessableEntity, "invalid_policy", err.Error(), nil)
 		return
@@ -55,7 +55,7 @@ func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, out)
 }
 func (s *Server) listPolicies(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListPolicies(r.Context(), s.cfg.DefaultTenantID)
+	items, err := s.store.ListPolicies(r.Context(), tenantID(r))
 	if err != nil {
 		mapStoreError(w, r, err)
 		return
@@ -75,19 +75,19 @@ func (s *Server) createNotificationChannel(w http.ResponseWriter, r *http.Reques
 		writeError(w, r, http.StatusBadRequest, "unsupported_channel", "Milestone 1 supports mock and telegram channels", nil)
 		return
 	}
-	out, err := s.store.CreateNotificationChannel(r.Context(), s.cfg.DefaultTenantID, in.Key, in.Kind, in.Config)
+	out, err := s.store.CreateNotificationChannel(r.Context(), tenantID(r), in.Key, in.Kind, in.Config)
 	if err != nil {
 		writeError(w, r, http.StatusBadRequest, "invalid_channel", "notification channel could not be created", nil)
 		return
 	}
-	if err := s.store.RecordAudit(r.Context(), storage.AuditInput{TenantID: s.cfg.DefaultTenantID, ActorType: "api-key", ActorID: "bootstrap-admin", Action: "notification_channel.created", ResourceType: "notification_channel", ResourceID: out.ID, RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()), After: map[string]any{"id": out.ID, "key": out.ChannelKey, "kind": out.Kind, "enabled": out.Enabled}}); err != nil {
+	if err := s.store.RecordAudit(r.Context(), storage.AuditInput{TenantID: tenantID(r), ActorType: actorType(r), ActorID: actorID(r), Action: "notification_channel.created", ResourceType: "notification_channel", ResourceID: out.ID, RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()), After: map[string]any{"id": out.ID, "key": out.ChannelKey, "kind": out.Kind, "enabled": out.Enabled}}); err != nil {
 		mapStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, out)
 }
 func (s *Server) listNotificationChannels(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListNotificationChannels(r.Context(), s.cfg.DefaultTenantID)
+	items, err := s.store.ListNotificationChannels(r.Context(), tenantID(r))
 	if err != nil {
 		mapStoreError(w, r, err)
 		return
