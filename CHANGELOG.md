@@ -33,6 +33,8 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Fixed
 
+- Enforce authenticated tenant scoping for incident reads and transitions, source management, policy, notification-channel and audit APIs; reject cross-tenant source tests and prevent non-default tenants from publishing through the bootstrap-only manual source.
+
 - Fail closed on malformed event, payload, replay, deduplication, correlation, concurrency, migration, and unauthenticated-source environment settings; reject non-positive windows and payloads above 64 MiB rather than silently using defaults.
 
 - Release HMAC replay reservations when normalization or JetStream durable acceptance fails, allowing an identical signed request to be retried after a `503` response while retaining replay protection after `202 Accepted`.
