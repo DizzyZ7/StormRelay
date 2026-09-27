@@ -21,7 +21,7 @@ type incidentCursor struct {
 
 func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	f := storage.IncidentFilter{TenantID: s.cfg.DefaultTenantID, State: r.URL.Query().Get("state"), Severity: r.URL.Query().Get("severity"), Service: r.URL.Query().Get("service"), Limit: limit}
+	f := storage.IncidentFilter{TenantID: tenantID(r), State: r.URL.Query().Get("state"), Severity: r.URL.Query().Get("severity"), Service: r.URL.Query().Get("service"), Limit: limit}
 	if cursor := r.URL.Query().Get("cursor"); cursor != "" {
 		decoded, err := decodeIncidentCursor(cursor)
 		if err != nil {
@@ -52,7 +52,7 @@ func (s *Server) incidentRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	incidentID := parts[0]
 	if len(parts) == 1 && r.Method == http.MethodGet {
-		item, err := s.store.GetIncident(r.Context(), s.cfg.DefaultTenantID, incidentID)
+		item, err := s.store.GetIncident(r.Context(), tenantID(r), incidentID)
 		if err != nil {
 			mapStoreError(w, r, err)
 			return
@@ -61,7 +61,7 @@ func (s *Server) incidentRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(parts) == 2 && parts[1] == "events" && r.Method == http.MethodGet {
-		items, err := s.store.ListIncidentEvents(r.Context(), s.cfg.DefaultTenantID, incidentID)
+		items, err := s.store.ListIncidentEvents(r.Context(), tenantID(r), incidentID)
 		if err != nil {
 			mapStoreError(w, r, err)
 			return
@@ -87,7 +87,7 @@ func (s *Server) transitionIncident(w http.ResponseWriter, r *http.Request, inci
 	if action == "resolve" {
 		target = incidents.Resolved
 	}
-	item, err := s.store.TransitionIncident(r.Context(), storage.TransitionInput{TenantID: s.cfg.DefaultTenantID, IncidentID: incidentID, To: target, ExpectedVersion: body.Version, ActorType: "api-key", ActorID: "bootstrap-admin", Reason: body.Reason, RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context())})
+	item, err := s.store.TransitionIncident(r.Context(), storage.TransitionInput{TenantID: tenantID(r), IncidentID: incidentID, To: target, ExpectedVersion: body.Version, ActorType: actorType(r), ActorID: actorID(r), Reason: body.Reason, RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context())})
 	if err != nil {
 		mapStoreError(w, r, err)
 		return
@@ -136,8 +136,13 @@ func (s *Server) createManualIncident(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "title_required", "title is required", nil)
 		return
 	}
+	// The seeded manual source is owned by the bootstrap tenant only.
+	if tenantID(r) != s.cfg.DefaultTenantID {
+		writeError(w, r, http.StatusNotImplemented, "tenant_manual_source_unavailable", "manual incident creation is not yet provisioned for this tenant", nil)
+		return
+	}
 	body, _ := json.Marshal(map[string]any{"type": "stormrelay.incident.manual", "subject": in.Title, "severity": in.Severity, "labels": map[string]string{"service": in.Service, "environment": in.Environment, "resource": in.Resource, "alertname": in.Title}})
-	e, err := events.Normalize(events.NormalizeInput{TenantID: s.cfg.DefaultTenantID, SourceID: "00000000-0000-4000-8000-000000000020", SourceName: "manual-api", ContentType: "application/json", Body: body, SourceEventID: "manual-" + telemetry.RequestID(r.Context()), IdempotencyKey: r.Header.Get("Idempotency-Key"), TraceParent: r.Header.Get("traceparent"), RequestID: telemetry.RequestID(r.Context()), ReceivedAt: time.Now().UTC()})
+	e, err := events.Normalize(events.NormalizeInput{TenantID: tenantID(r), SourceID: "00000000-0000-4000-8000-000000000020", SourceName: "manual-api", ContentType: "application/json", Body: body, SourceEventID: "manual-" + telemetry.RequestID(r.Context()), IdempotencyKey: r.Header.Get("Idempotency-Key"), TraceParent: r.Header.Get("traceparent"), RequestID: telemetry.RequestID(r.Context()), ReceivedAt: time.Now().UTC()})
 	if err != nil {
 		writeError(w, r, http.StatusBadRequest, "invalid_incident", err.Error(), nil)
 		return

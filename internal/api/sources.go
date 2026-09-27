@@ -29,19 +29,19 @@ func (s *Server) createSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "unauthenticated_sources_disabled", "auth_mode none requires STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES=true", nil)
 		return
 	}
-	result, err := s.store.CreateSource(r.Context(), storage.CreateSourceInput{TenantID: s.cfg.DefaultTenantID, Name: in.Name, Kind: in.Kind, AuthMode: in.AuthMode, RateLimitPerSecond: in.RateLimitPerSecond, RateLimitBurst: in.RateLimitBurst})
+	result, err := s.store.CreateSource(r.Context(), storage.CreateSourceInput{TenantID: tenantID(r), Name: in.Name, Kind: in.Kind, AuthMode: in.AuthMode, RateLimitPerSecond: in.RateLimitPerSecond, RateLimitBurst: in.RateLimitBurst})
 	if err != nil {
 		writeError(w, r, http.StatusBadRequest, "invalid_source", "event source could not be created", nil)
 		return
 	}
-	if err := s.store.RecordAudit(r.Context(), storage.AuditInput{TenantID: s.cfg.DefaultTenantID, ActorType: "api-key", ActorID: "bootstrap-admin", Action: "source.created", ResourceType: "source", ResourceID: result.Source.ID, RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()), After: result.Source, Metadata: map[string]any{"kind": result.Source.Kind, "auth_mode": result.Source.AuthMode}}); err != nil {
+	if err := s.store.RecordAudit(r.Context(), storage.AuditInput{TenantID: tenantID(r), ActorType: actorType(r), ActorID: actorID(r), Action: "source.created", ResourceType: "source", ResourceID: result.Source.ID, RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()), After: result.Source, Metadata: map[string]any{"kind": result.Source.Kind, "auth_mode": result.Source.AuthMode}}); err != nil {
 		mapStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
 }
 func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListSources(r.Context(), s.cfg.DefaultTenantID, 100)
+	items, err := s.store.ListSources(r.Context(), tenantID(r), 100)
 	if err != nil {
 		mapStoreError(w, r, err)
 		return
@@ -53,6 +53,10 @@ func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
 	creds, err := s.store.GetSourceCredentials(r.Context(), path)
 	if err != nil {
 		mapStoreError(w, r, err)
+		return
+	}
+	if creds.Source.TenantID != tenantID(r) {
+		writeError(w, r, http.StatusNotFound, "not_found", "resource not found", nil)
 		return
 	}
 	body := []byte(`{"type":"stormrelay.source.test","subject":"Source connectivity test","severity":"info","labels":{"service":"stormrelay","environment":"test"}}`)

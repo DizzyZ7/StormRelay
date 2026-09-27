@@ -33,6 +33,8 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Fixed
 
+- Enforce authenticated tenant scoping for incident reads and transitions, source management, policy, notification-channel and audit APIs; reject cross-tenant source tests and prevent non-default tenants from publishing through the bootstrap-only manual source.
+
 - Bind all development Docker Compose published ports to the host loopback interface instead of every network interface; add a Compose YAML regression test to prevent unsafe exposure of demo credentials and internal observability endpoints.
 
 - Fail closed on malformed event, payload, replay, deduplication, correlation, concurrency, migration, and unauthenticated-source environment settings; reject non-positive windows and payloads above 64 MiB rather than silently using defaults.
