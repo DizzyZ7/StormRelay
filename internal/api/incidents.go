@@ -136,13 +136,14 @@ func (s *Server) createManualIncident(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "title_required", "title is required", nil)
 		return
 	}
-	// The seeded manual source is owned by the bootstrap tenant only.
-	if tenantID(r) != s.cfg.DefaultTenantID {
-		writeError(w, r, http.StatusNotImplemented, "tenant_manual_source_unavailable", "manual incident creation is not yet provisioned for this tenant", nil)
+	// Each tenant publishes manual incidents through its own internal source.
+	manualSourceID, err := s.store.EnsureManualSource(r.Context(), tenantID(r))
+	if err != nil {
+		mapStoreError(w, r, err)
 		return
 	}
 	body, _ := json.Marshal(map[string]any{"type": "stormrelay.incident.manual", "subject": in.Title, "severity": in.Severity, "labels": map[string]string{"service": in.Service, "environment": in.Environment, "resource": in.Resource, "alertname": in.Title}})
-	e, err := events.Normalize(events.NormalizeInput{TenantID: tenantID(r), SourceID: "00000000-0000-4000-8000-000000000020", SourceName: "manual-api", ContentType: "application/json", Body: body, SourceEventID: "manual-" + telemetry.RequestID(r.Context()), IdempotencyKey: r.Header.Get("Idempotency-Key"), TraceParent: r.Header.Get("traceparent"), RequestID: telemetry.RequestID(r.Context()), ReceivedAt: time.Now().UTC()})
+	e, err := events.Normalize(events.NormalizeInput{TenantID: tenantID(r), SourceID: manualSourceID, SourceName: "manual-api", ContentType: "application/json", Body: body, SourceEventID: "manual-" + telemetry.RequestID(r.Context()), IdempotencyKey: r.Header.Get("Idempotency-Key"), TraceParent: r.Header.Get("traceparent"), RequestID: telemetry.RequestID(r.Context()), ReceivedAt: time.Now().UTC()})
 	if err != nil {
 		writeError(w, r, http.StatusBadRequest, "invalid_incident", err.Error(), nil)
 		return
