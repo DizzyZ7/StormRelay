@@ -30,6 +30,10 @@ HMAC sources sign the timestamp and exact raw body. The gateway enforces a bound
 
 The gateway applies `http.MaxBytesReader` before reading. Ordinary control-plane JSON is capped at 1 MiB and requires exactly one valid document with known fields. Invalid or oversized caller-provided request IDs are replaced with generated UUIDs before logging, tracing, audit, or response reflection. JSON parsing has bounded input. Policy YAML has a separate limit, known-field decoding, and no arbitrary expression evaluation. Fuzz targets cover event and policy parsing.
 
+### Notification configuration disclosure
+
+The integrations-read role can list notification-channel metadata but must not receive stored configuration. Channel configuration is excluded from JSON serialization and is not loaded by the list query; historical rows containing unknown fields are also redacted. New mock and Telegram channels reject unsupported config keys so arbitrary credentials cannot be introduced through the supported HTTP API. Workers continue to load stored configuration internally for delivery; pre-existing config records still require database-level access control and a separate migration if per-channel secrets are supported in future.
+
 ### Resource creation and audit consistency
 
 API-created event sources and notification channels are inserted in the same PostgreSQL transaction as their creation audit records. One-time HMAC/bearer source credentials are returned only after commit. Audit metadata excludes plaintext credentials and notification-channel configuration; an audit failure rolls back the resource insert instead of creating an untracked resource with a lost credential. Direct internal storage creation methods are not automatically audited and must not be exposed to untrusted HTTP clients.
