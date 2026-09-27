@@ -33,6 +33,8 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Fixed
 
+- Make acknowledgement links GET/HEAD read-only and require an explicit POST from a confirmation page; add strict no-referrer, no-store, CSP and anti-framing response headers to mitigate accidental acknowledgement by link previews and scanners.
+
 - Enforce authenticated tenant scoping for incident reads and transitions, source management, policy, notification-channel and audit APIs; reject cross-tenant source tests and prevent non-default tenants from publishing through the bootstrap-only manual source.
 
 - Bind all development Docker Compose published ports to the host loopback interface instead of every network interface; add a Compose YAML regression test to prevent unsafe exposure of demo credentials and internal observability endpoints.
