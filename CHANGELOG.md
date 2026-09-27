@@ -6,6 +6,13 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Added
 
+- On-demand, concurrency-safe tenant-private manual event sources, allowing authenticated manual incidents in non-default tenants without sharing the bootstrap source.
+
+### Security
+
+- Reserve the `manual-api` source name and reject webhook and source-test access to internal manual sources regardless of the unauthenticated webhook flag.
+
+
 - Repository foundation and production-oriented architecture documentation.
 - Generic JSON and structured CloudEvents ingestion with HMAC/bearer authentication.
 - JetStream at-least-once transport and PostgreSQL transactional processing.
