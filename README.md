@@ -23,6 +23,8 @@ curl -fsS http://localhost:8080/readyz | jq
 
 The development API key is `local-development-only-change-me`. It is intentionally limited to the local Compose file and must never be reused outside the demo.
 
+All demo Compose host ports bind to `127.0.0.1` only. Containers still communicate over the internal `backend` network. The Compose environment uses published development credentials and is **not** a production deployment; use dedicated secrets, authentication, TLS, network policies, and a reviewed external reverse proxy before exposing the application to other machines.
+
 The Compose stack also exposes:
 
 - Prometheus at `http://localhost:9090` with StormRelay alert rules loaded;
