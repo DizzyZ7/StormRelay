@@ -29,10 +29,10 @@ func (s *Store) CreateSourceWithAudit(ctx context.Context, in CreateSourceInput,
 
 func (s *Store) createSource(ctx context.Context, in CreateSourceInput, audit *AuditInput) (CreateSourceResult, error) {
 	if strings.TrimSpace(in.Name) == "" {
-		return CreateSourceResult{}, fmt.Errorf("source name is required")
+		return CreateSourceResult{}, fmt.Errorf("%w: source name is required", ErrInvalidCreateInput)
 	}
 	if strings.EqualFold(strings.TrimSpace(in.Name), "manual-api") {
-		return CreateSourceResult{}, fmt.Errorf("manual-api is reserved for internal incident creation")
+		return CreateSourceResult{}, fmt.Errorf("%w: manual-api is reserved for internal incident creation", ErrInvalidCreateInput)
 	}
 	if in.Kind == "" {
 		in.Kind = "generic"
@@ -71,7 +71,7 @@ func (s *Store) createSource(ctx context.Context, in CreateSourceInput, audit *A
 		hash = h[:]
 	case ingestion.AuthNone:
 	default:
-		return CreateSourceResult{}, fmt.Errorf("unsupported auth mode %q", in.AuthMode)
+		return CreateSourceResult{}, fmt.Errorf("%w: unsupported auth mode %q", ErrInvalidCreateInput, in.AuthMode)
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
