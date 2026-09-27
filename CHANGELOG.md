@@ -41,6 +41,7 @@ All notable changes will be documented here. The format follows Keep a Changelog
 ### Fixed
 
 - Enforce tenant ownership in SQL before retrieving or decrypting HMAC source credentials for authenticated source tests; preserve unscoped source-ID lookup exclusively for inbound webhooks and cover cross-tenant access using deliberately mismatched encryption keys.
+- Reject test event publication from disabled sources, matching the ordinary webhook ingestion guard.
 
 
 - Make acknowledgement links GET/HEAD read-only and require an explicit POST from a confirmation page; add strict no-referrer, no-store, CSP and anti-framing response headers to mitigate accidental acknowledgement by link previews and scanners.
