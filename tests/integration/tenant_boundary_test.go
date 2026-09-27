@@ -193,6 +193,17 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 		t.Fatalf("cross-tenant source with unreadable credential returned %d: %s", crossKeyTest.Code, crossKeyTest.Body.String())
 	}
 
+
+	// Disabling a source must also block its authenticated test endpoint;
+	// otherwise that endpoint bypasses the normal webhook enabled guard.
+	if _, err := conn.Exec(ctx, "UPDATE event_sources SET enabled=false WHERE id=$1", ownSource.Source.ID); err != nil {
+		t.Fatal(err)
+	}
+	disabledTest := request(key.Credential, http.MethodPost, "/api/v1/sources/"+ownSource.Source.ID+"/test", "")
+	if disabledTest.Code != http.StatusGone {
+		t.Fatalf("disabled source test returned %d: %s", disabledTest.Code, disabledTest.Body.String())
+	}
+
 	manual := request(key.Credential, http.MethodPost, "/api/v1/incidents",
 		`{"title":"must not write into bootstrap tenant","severity":"warning"}`)
 	if manual.Code != http.StatusAccepted {
