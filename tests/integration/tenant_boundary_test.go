@@ -69,17 +69,17 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	key, err := store.CreateServiceAccountKey(ctx, storage.CreateServiceAccountKeyInput{
-		TenantID: foreignTenant,
+		TenantID:         foreignTenant,
 		ServiceAccountID: account.ID,
-		ActorID: "integration",
+		ActorID:          "integration",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	handler := api.New(config.Config{
-		DefaultTenantID: tenantID,
-		BootstrapAPIKey: "isolation-bootstrap-key",
+		DefaultTenantID:             tenantID,
+		BootstrapAPIKey:             "isolation-bootstrap-key",
 		AllowUnauthenticatedSources: false,
 	}, store, nil, &telemetry.Metrics{}, slog.Default()).Handler()
 
