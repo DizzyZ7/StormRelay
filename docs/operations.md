@@ -43,6 +43,8 @@ The development Compose stack automatically provisions:
 - the `StormRelay Operations` dashboard in the `StormRelay` folder;
 - availability, pipeline, capacity, and integration-failure alert rules.
 
+The development Compose stack publishes every host port on `127.0.0.1` only, including NATS monitoring, the OTLP receiver, worker metrics, Grafana, Tempo, Prometheus, and the API. Container-to-container traffic stays on the internal Compose network. This prevents accidental exposure through a host's public network interface, but it does not make the development stack production-ready: localhost reverse proxies, SSH tunnels, host networking, or other host users can still access the published services. Do not expose these ports or forward them to untrusted networks.
+
 The Compose Grafana credentials are `admin` / `admin` and are development-only. Replace credentials and configure the intended authentication mechanism before exposing Grafana outside localhost or a trusted development network.
 
 The dashboard covers target availability, open incidents, event rates, processing latency, JetStream lag, PostgreSQL pool utilization, runbook duration, and operational failure rates. Provisioned dashboards are immutable in the UI; edit the version-controlled JSON instead.
