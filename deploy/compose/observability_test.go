@@ -190,12 +190,12 @@ func TestDemoPublishedPortsAreLoopbackOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantPorts := map[string][]string{
-		"nats": {"4222", "8222"},
-		"server": {"8080"},
-		"worker": {"8081"},
-		"grafana": {"3000"},
-		"prometheus": {"9090"},
-		"tempo": {"3200"},
+		"nats":           {"4222", "8222"},
+		"server":         {"8080"},
+		"worker":         {"8081"},
+		"grafana":        {"3000"},
+		"prometheus":     {"9090"},
+		"tempo":          {"3200"},
 		"otel-collector": {"4317", "13133"},
 	}
 	for service, ports := range wantPorts {
