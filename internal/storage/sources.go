@@ -107,7 +107,7 @@ func (s *Store) GetSourceCredentialsForTenant(ctx context.Context, tenantID, sou
 func (s *Store) getSourceCredentials(ctx context.Context, tenantID, sourceID string) (SourceCredentials, error) {
 	var out SourceCredentials
 	var encrypted []byte
-	query := `SELECT id,tenant_id,name,kind,auth_mode,enabled,rate_limit_per_second,rate_limit_burst,created_at,version,encrypted_secret,bearer_hash FROM event_sources WHERE id=`SELECT id,tenant_id,name,kind,auth_mode,enabled,rate_limit_per_second,rate_limit_burst,created_at,version,encrypted_secret,bearer_hash FROM event_sources WHERE id=$1``
+	query := `SELECT id,tenant_id,name,kind,auth_mode,enabled,rate_limit_per_second,rate_limit_burst,created_at,version,encrypted_secret,bearer_hash FROM event_sources WHERE id=$1`
 	args := []any{sourceID}
 	if tenantID != "" {
 		query += " AND tenant_id=$2"
