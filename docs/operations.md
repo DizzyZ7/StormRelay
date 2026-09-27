@@ -29,6 +29,12 @@ Ordinary control-plane JSON endpoints accept at most **1 MiB** per request body,
 
 Caller-supplied `X-Request-ID` is accepted only when it is 1–128 ASCII characters using letters, digits, hyphen, underscore, period, or colon. The API generates a new UUID when a client sends an invalid or oversized ID; it never reflects an untrusted oversized ID into logs, traces, audit metadata, or response headers.
 
+## Atomic resource creation and audit
+
+The authenticated source and notification-channel creation endpoints use one PostgreSQL transaction for the resource insert and its audit entry. The API returns the one-time source credential only after the transaction commits. If the audit insert fails, both records roll back and the API returns a non-secret `500` response; invalid user input and unique-key conflicts still produce `400`. Audit hashes and metadata for sources and channels deliberately omit plaintext HMAC/bearer credentials and channel configuration secrets.
+
+Regression tests deliberately fail audit writes with a tenant-scoped PostgreSQL trigger to verify that neither resources nor one-time credentials are published after a failed transaction.
+
 ## Logs and sensitive data
 
 Logs are structured JSON. Request and trace IDs are included. Do not enable reverse-proxy body logging on webhook paths. Authorization, signatures, source credentials, acknowledgement tokens, raw payloads, Telegram token, and secret URLs must not be forwarded to log attributes.

@@ -75,13 +75,17 @@ func (s *Server) createNotificationChannel(w http.ResponseWriter, r *http.Reques
 		writeError(w, r, http.StatusBadRequest, "unsupported_channel", "Milestone 1 supports mock and telegram channels", nil)
 		return
 	}
-	out, err := s.store.CreateNotificationChannel(r.Context(), tenantID(r), in.Key, in.Kind, in.Config)
+	out, err := s.store.CreateNotificationChannelWithAudit(r.Context(), tenantID(r), in.Key, in.Kind, in.Config, storage.AuditInput{
+		TenantID: tenantID(r), ActorType: actorType(r), ActorID: actorID(r),
+		RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()),
+	})
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "invalid_channel", "notification channel could not be created", nil)
-		return
-	}
-	if err := s.store.RecordAudit(r.Context(), storage.AuditInput{TenantID: tenantID(r), ActorType: actorType(r), ActorID: actorID(r), Action: "notification_channel.created", ResourceType: "notification_channel", ResourceID: out.ID, RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()), After: map[string]any{"id": out.ID, "key": out.ChannelKey, "kind": out.Kind, "enabled": out.Enabled}}); err != nil {
-		mapStoreError(w, r, err)
+		if storage.IsInvalidCreateInput(err) {
+			writeError(w, r, http.StatusBadRequest, "invalid_channel", "notification channel could not be created", nil)
+			return
+		}
+		s.logger.Error("notification channel transaction failed", "request_id", telemetry.RequestID(r.Context()), "error", err)
+		writeError(w, r, http.StatusInternalServerError, "channel_creation_failed", "notification channel could not be created", nil)
 		return
 	}
 	writeJSON(w, http.StatusCreated, out)

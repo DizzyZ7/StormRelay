@@ -40,6 +40,9 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Fixed
 
+- Commit source creation and its credential-free audit entry in one PostgreSQL transaction; a one-time HMAC/bearer credential is returned only after both persist. Apply the same atomic creation/audit guarantee to notification channels, with rollback regression tests that inject an audit-write failure.
+
+
 - Enforce tenant ownership in SQL before retrieving or decrypting HMAC source credentials for authenticated source tests; preserve unscoped source-ID lookup exclusively for inbound webhooks and cover cross-tenant access using deliberately mismatched encryption keys.
 - Reject test event publication from disabled sources, matching the ordinary webhook ingestion guard.
 

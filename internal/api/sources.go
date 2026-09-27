@@ -29,13 +29,22 @@ func (s *Server) createSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "unauthenticated_sources_disabled", "auth_mode none requires STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES=true", nil)
 		return
 	}
-	result, err := s.store.CreateSource(r.Context(), storage.CreateSourceInput{TenantID: tenantID(r), Name: in.Name, Kind: in.Kind, AuthMode: in.AuthMode, RateLimitPerSecond: in.RateLimitPerSecond, RateLimitBurst: in.RateLimitBurst})
+	result, err := s.store.CreateSourceWithAudit(r.Context(), storage.CreateSourceInput{
+		TenantID: tenantID(r), Name: in.Name, Kind: in.Kind, AuthMode: in.AuthMode,
+		RateLimitPerSecond: in.RateLimitPerSecond, RateLimitBurst: in.RateLimitBurst,
+	}, storage.AuditInput{
+		TenantID: tenantID(r), ActorType: actorType(r), ActorID: actorID(r),
+		RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()),
+	})
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "invalid_source", "event source could not be created", nil)
-		return
-	}
-	if err := s.store.RecordAudit(r.Context(), storage.AuditInput{TenantID: tenantID(r), ActorType: actorType(r), ActorID: actorID(r), Action: "source.created", ResourceType: "source", ResourceID: result.Source.ID, RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()), After: result.Source, Metadata: map[string]any{"kind": result.Source.Kind, "auth_mode": result.Source.AuthMode}}); err != nil {
-		mapStoreError(w, r, err)
+		// The transaction may have failed during SQL insert, audit insertion, or
+		// commit. Never expose a generated credential before all three succeed.
+		if storage.IsInvalidCreateInput(err) {
+			writeError(w, r, http.StatusBadRequest, "invalid_source", "event source could not be created", nil)
+			return
+		}
+		s.logger.Error("source creation transaction failed", "request_id", telemetry.RequestID(r.Context()), "error", err)
+		writeError(w, r, http.StatusInternalServerError, "source_creation_failed", "event source could not be created", nil)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
