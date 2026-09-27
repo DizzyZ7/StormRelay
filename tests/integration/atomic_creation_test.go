@@ -95,10 +95,10 @@ func TestResourceCreationAndAuditCommitAtomically(t *testing.T) {
 		t.Fatal("committed source credential does not decrypt")
 	}
 
-	privateSecret := "private-channel-secret-" + tenant
+	privateSecret := "private-chat-id-" + tenant
 	channelResponse := post("/api/v1/notification-channels", map[string]any{
 		"key": "atomic-channel-" + tenant, "kind": "telegram",
-		"config": map[string]any{"chat_id": "12345", "api_token": privateSecret},
+		"config": map[string]any{"chat_id": privateSecret, "disable_preview": true},
 	})
 	if channelResponse.Code != http.StatusCreated {
 		t.Fatalf("successful channel response=%d: %s", channelResponse.Code, channelResponse.Body.String())
@@ -109,6 +109,69 @@ func TestResourceCreationAndAuditCommitAtomically(t *testing.T) {
 	}
 	if channel.ID == "" {
 		t.Fatal("committed notification channel has no ID")
+	}
+	if bytes.Contains(channelResponse.Body.Bytes(), []byte(privateSecret)) || bytes.Contains(channelResponse.Body.Bytes(), []byte("\"config\"")) {
+		t.Fatal("notification channel creation response leaked internal config")
+	}
+	// Historical rows may contain unknown configuration fields. Even a viewer
+	// with integrations:read must receive metadata only, not these old secrets.
+	legacyID, err := id.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySecret := "legacy-notification-credential-" + tenant
+	legacyConfig, err := json.Marshal(map[string]any{"chat_id": privateSecret, "api_token": legacySecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, "INSERT INTO notification_channels(id,tenant_id,channel_key,kind,config) VALUES($1,$2,$3,'telegram',$4)", legacyID, tenant, "legacy-channel-"+tenant, legacyConfig); err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := s.CreateServiceAccount(ctx, storage.CreateServiceAccountInput{
+		TenantID: tenant,
+		Name:     "channel-config-viewer",
+		Roles:    []auth.Role{auth.RoleViewer},
+		ActorID:  "integration",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewerKey, err := s.CreateServiceAccountKey(ctx, storage.CreateServiceAccountKeyInput{
+		TenantID:         tenant,
+		ServiceAccountID: viewer.ID,
+		ActorID:          "integration",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/notification-channels", nil)
+	listRequest.Header.Set("Authorization", "Bearer "+viewerKey.Credential)
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("viewer channel list=%d: %s", listResponse.Code, listResponse.Body.String())
+	}
+	if bytes.Contains(listResponse.Body.Bytes(), []byte(privateSecret)) ||
+		bytes.Contains(listResponse.Body.Bytes(), []byte(legacySecret)) ||
+		bytes.Contains(listResponse.Body.Bytes(), []byte("\"config\"")) {
+		t.Fatal("viewer notification list exposed stored configuration")
+	}
+	var listed struct {
+		Items []storage.NotificationChannel `json:"items"`
+	}
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Items) < 2 {
+		t.Fatalf("notification list omitted tenant channel metadata: %+v", listed.Items)
+	}
+	// Newly created channels refuse unknown credential-like configuration.
+	invalidConfig := post("/api/v1/notification-channels", map[string]any{
+		"key": "invalid-config-" + tenant, "kind": "telegram",
+		"config": map[string]any{"chat_id": "12345", "api_token": "do-not-store"},
+	})
+	if invalidConfig.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected telegram field was accepted: status=%d body=%s", invalidConfig.Code, invalidConfig.Body.String())
 	}
 
 	for _, resource := range []struct {
