@@ -39,6 +39,10 @@ func (s *Server) createSource(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The transaction may have failed during SQL insert, audit insertion, or
 		// commit. Never expose a generated credential before all three succeed.
+		if storage.IsInvalidCreateInput(err) {
+			writeError(w, r, http.StatusBadRequest, "invalid_source", "event source could not be created", nil)
+			return
+		}
 		s.logger.Error("source creation transaction failed", "request_id", telemetry.RequestID(r.Context()), "error", err)
 		writeError(w, r, http.StatusInternalServerError, "source_creation_failed", "event source could not be created", nil)
 		return
