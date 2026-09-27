@@ -33,6 +33,8 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Fixed
 
+- Fail closed on malformed event, payload, replay, deduplication, correlation, concurrency, migration, and unauthenticated-source environment settings; reject non-positive windows and payloads above 64 MiB rather than silently using defaults.
+
 - Release HMAC replay reservations when normalization or JetStream durable acceptance fails, allowing an identical signed request to be retried after a `503` response while retaining replay protection after `202 Accepted`.
 - Canonicalize accepted HMAC replay identities and fail closed at replay-cache capacity without evicting active reservations.
 

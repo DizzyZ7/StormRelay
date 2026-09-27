@@ -51,3 +51,48 @@ func TestLoadRejectsInvalidEventRedeliveryPolicy(t *testing.T) {
 		})
 	}
 }
+
+// Misconfigured security and reliability settings must never silently fall back.
+func TestLoadRejectsMalformedEnvironment(t *testing.T) {
+	tests := []struct{ name, key, value, want string }{
+		{"payload size", "STORMRELAY_MAX_PAYLOAD_BYTES", "unlimited", "must be an integer"},
+		{"payload negative", "STORMRELAY_MAX_PAYLOAD_BYTES", "-1", "between 1"},
+		{"payload excessive", "STORMRELAY_MAX_PAYLOAD_BYTES", "67108865", "between 1"},
+		{"replay duration", "STORMRELAY_REPLAY_WINDOW", "forever", "Go duration"},
+		{"replay disabled", "STORMRELAY_REPLAY_WINDOW", "0s", "must be positive"},
+		{"dedupe duration", "STORMRELAY_DEDUPE_WINDOW", "invalid", "Go duration"},
+		{"correlation disabled", "STORMRELAY_CORRELATION_WINDOW", "-1s", "must be positive"},
+		{"worker count", "STORMRELAY_WORKER_CONCURRENCY", "many", "must be an integer"},
+		{"delivery count", "STORMRELAY_EVENT_MAX_DELIVERIES", "many", "must be an integer"},
+		{"runbook count", "STORMRELAY_RUNBOOK_CONCURRENCY", "many", "must be an integer"},
+		{"auto migration", "STORMRELAY_AUTO_MIGRATE", "sometimes", "must be a boolean"},
+		{"unauthenticated sources", "STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES", "maybe", "must be a boolean"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredRedeliveryConfig(t)
+			t.Setenv(tc.key, tc.value)
+			_, err := Load("test", "dev")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load() error = %v; want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsExplicitEnvironmentValues(t *testing.T) {
+	setRequiredRedeliveryConfig(t)
+	t.Setenv("STORMRELAY_MAX_PAYLOAD_BYTES", "2097152")
+	t.Setenv("STORMRELAY_REPLAY_WINDOW", "8m")
+	t.Setenv("STORMRELAY_DEDUPE_WINDOW", "20m")
+	t.Setenv("STORMRELAY_CORRELATION_WINDOW", "40m")
+	t.Setenv("STORMRELAY_AUTO_MIGRATE", "false")
+	t.Setenv("STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES", "true")
+	cfg, err := Load("test", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxPayloadBytes != 2097152 || cfg.ReplayWindow != 8*time.Minute || cfg.DedupeWindow != 20*time.Minute || cfg.CorrelationWindow != 40*time.Minute || cfg.AutoMigrate || !cfg.AllowUnauthenticatedSources {
+		t.Fatalf("unexpected parsed config: %+v", cfg)
+	}
+}
