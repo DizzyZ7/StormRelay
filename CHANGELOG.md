@@ -40,6 +40,9 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Fixed
 
+- Redact notification-channel configuration from create/list API responses, including legacy rows; restrict new mock/Telegram configurations to known safe fields and reject unknown secret-bearing properties.
+
+
 - Commit source creation and its credential-free audit entry in one PostgreSQL transaction; a one-time HMAC/bearer credential is returned only after both persist. Apply the same atomic creation/audit guarantee to notification channels, with rollback regression tests that inject an audit-write failure.
 
 
