@@ -129,6 +129,9 @@ Supported Go and Python process-plugin server SDKs implement `stormrelay.plugin/
 
 ## Security boundaries
 
+Notification-channel create/list responses contain metadata only, never the stored provider configuration. Supported channel input is restricted to empty `mock` configuration or `telegram` configuration with `chat_id` and optional `disable_preview`. Use the `STORMRELAY_TELEGRAM_BOT_TOKEN` environment variable for the bot token; unknown channel config fields are rejected.
+
+
 - Arbitrary shell execution is not supported.
 - Runbook and plugin outbound requests use exact host allowlists, DNS pinning, redirect rejection, disabled proxies, payload bounds, and deadlines.
 - OIDC trust endpoints additionally require public IP destinations and reject private/loopback/link-local/metadata/CGNAT ranges.
