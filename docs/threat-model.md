@@ -28,7 +28,7 @@ HMAC sources sign the timestamp and exact raw body. The gateway enforces a bound
 
 ### Payload exhaustion and parser abuse
 
-The gateway applies `http.MaxBytesReader` before reading. JSON parsing has bounded input. Policy YAML has a separate limit, known-field decoding, and no arbitrary expression evaluation. Fuzz targets cover event and policy parsing.
+The gateway applies `http.MaxBytesReader` before reading. Ordinary control-plane JSON is capped at 1 MiB and requires exactly one valid document with known fields. Invalid or oversized caller-provided request IDs are replaced with generated UUIDs before logging, tracing, audit, or response reflection. JSON parsing has bounded input. Policy YAML has a separate limit, known-field decoding, and no arbitrary expression evaluation. Fuzz targets cover event and policy parsing.
 
 ### Secret disclosure
 
