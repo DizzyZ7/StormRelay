@@ -36,7 +36,7 @@ Recoverable source secrets and acknowledgement tokens use AES-256-GCM with resou
 
 ### Cross-tenant access
 
-Tenant-scoped service accounts and guarded OIDC bearer authentication are implemented. Incident, source, policy and audit APIs use the authenticated tenant. Manual incident creation provisions a reserved internal source for each tenant on first use; `manual-api` is not available via the public webhook or source-test routes, even when unauthenticated webhook sources are enabled. Cross-tenant regression tests cover source visibility and provisioning. A complete tenant isolation audit of every API, storage operation and plugin remains open; do not treat this as a claim of production multi-tenant isolation.
+Tenant-scoped service accounts and guarded OIDC bearer authentication are implemented. Incident, source, policy and audit APIs use the authenticated tenant. Manual incident creation provisions a reserved internal source for each tenant on first use; `manual-api` is not available via the public webhook or source-test routes, even when unauthenticated webhook sources are enabled. Cross-tenant regression tests cover source visibility and provisioning. Authenticated source-test requests constrain source ownership in the PostgreSQL lookup before loading or decrypting the source credential; public signed webhooks instead resolve their tenant from the globally unique source ID. A complete tenant isolation audit of every API, storage operation and plugin remains open; do not treat this as a claim of production multi-tenant isolation.
 
 ### Concurrent duplicate processing
 
