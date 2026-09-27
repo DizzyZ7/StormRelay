@@ -40,6 +40,9 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Fixed
 
+- Cap control-plane JSON request bodies at 1 MiB (including chunked transfer), require exactly one non-null document, and reject oversized caller-provided request IDs by generating a safe UUID instead of reflecting untrusted data into logs and audit trails.
+
+
 - Make acknowledgement links GET/HEAD read-only and require an explicit POST from a confirmation page; add strict no-referrer, no-store, CSP and anti-framing response headers to mitigate accidental acknowledgement by link previews and scanners.
 
 - Enforce authenticated tenant scoping for incident reads and transitions, source management, policy, notification-channel and audit APIs; reject cross-tenant source tests and prevent non-default tenants from publishing through the bootstrap-only manual source.

@@ -23,6 +23,12 @@ An empty allowlist denies every outbound runbook or plugin destination.
 
 `/healthz` proves the process can serve HTTP. `/readyz` verifies PostgreSQL, JetStream, and the expected migration version. Remove an instance from traffic when readiness is non-200.
 
+## HTTP request boundaries
+
+Ordinary control-plane JSON endpoints accept at most **1 MiB** per request body, including chunked requests. Requests exceeding that limit return `413 payload_too_large`. Requests containing `null`, unknown fields, malformed JSON, or more than one JSON document return `400 invalid_json`. The webhook gateway, policy upload, and runbook upload retain their separate configured or route-specific limits.
+
+Caller-supplied `X-Request-ID` is accepted only when it is 1–128 ASCII characters using letters, digits, hyphen, underscore, period, or colon. The API generates a new UUID when a client sends an invalid or oversized ID; it never reflects an untrusted oversized ID into logs, traces, audit metadata, or response headers.
+
 ## Logs and sensitive data
 
 Logs are structured JSON. Request and trace IDs are included. Do not enable reverse-proxy body logging on webhook paths. Authorization, signatures, source credentials, acknowledgement tokens, raw payloads, Telegram token, and secret URLs must not be forwarded to log attributes.
