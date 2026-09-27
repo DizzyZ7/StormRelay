@@ -59,6 +59,10 @@ func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, "not_found", "resource not found", nil)
 		return
 	}
+	if !creds.Source.Enabled {
+		writeError(w, r, http.StatusGone, "source_disabled", "event source is disabled", nil)
+		return
+	}
 	body := []byte(`{"type":"stormrelay.source.test","subject":"Source connectivity test","severity":"info","labels":{"service":"stormrelay","environment":"test"}}`)
 	e, err := events.Normalize(events.NormalizeInput{TenantID: creds.Source.TenantID, SourceID: creds.Source.ID, SourceName: creds.Source.Name, ContentType: "application/json", Body: body, SourceEventID: "source-test-" + telemetry.RequestID(r.Context()), TraceParent: r.Header.Get("traceparent"), RequestID: telemetry.RequestID(r.Context()), ReceivedAt: time.Now().UTC()})
 	if err != nil {
