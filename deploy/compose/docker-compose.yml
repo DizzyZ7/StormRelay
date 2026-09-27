@@ -21,8 +21,8 @@ services:
     volumes:
       - nats-data:/data
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
     networks: [backend]
 
   tempo:
@@ -32,7 +32,7 @@ services:
       - ./tempo.yml:/etc/tempo/tempo.yml:ro
       - tempo-data:/var/tempo
     ports:
-      - "3200:3200"
+      - "127.0.0.1:3200:3200"
     networks: [backend]
 
   otel-collector:
@@ -41,8 +41,8 @@ services:
     volumes:
       - ./otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro
     ports:
-      - "4317:4317"
-      - "13133:13133"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:13133:13133"
     depends_on:
       - tempo
     networks: [backend]
@@ -67,7 +67,7 @@ services:
       STORMRELAY_OTEL_TRACE_SAMPLE_RATIO: "1.0"
       STORMRELAY_OTEL_EXPORT_TIMEOUT: 5s
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,7 +92,7 @@ services:
       <<: *stormrelay-env
       STORMRELAY_WORKER_HTTP_ADDRESS: :8081
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,7 +124,7 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./alerts.yml:/etc/prometheus/alerts.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     depends_on: [server, worker]
     networks: [backend]
 
@@ -138,7 +138,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on: [prometheus, tempo]
     networks: [backend]
 
