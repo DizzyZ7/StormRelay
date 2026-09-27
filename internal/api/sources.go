@@ -55,7 +55,7 @@ func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
 		mapStoreError(w, r, err)
 		return
 	}
-	if creds.Source.TenantID != tenantID(r) {
+	if creds.Source.TenantID != tenantID(r) || creds.Source.Name == "manual-api" {
 		writeError(w, r, http.StatusNotFound, "not_found", "resource not found", nil)
 		return
 	}
@@ -77,6 +77,11 @@ func (s *Server) ingestWebhook(w http.ResponseWriter, r *http.Request) {
 	creds, err := s.store.GetSourceCredentials(r.Context(), sourceID)
 	if err != nil {
 		mapStoreError(w, r, err)
+		return
+	}
+	// Internal manual sources are never exposed as public webhooks.
+	if creds.Source.Name == "manual-api" {
+		writeError(w, r, http.StatusNotFound, "not_found", "resource not found", nil)
 		return
 	}
 	if creds.Source.AuthMode == ingestion.AuthNone && !s.cfg.AllowUnauthenticatedSources {

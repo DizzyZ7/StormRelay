@@ -36,7 +36,7 @@ Recoverable source secrets and acknowledgement tokens use AES-256-GCM with resou
 
 ### Cross-tenant access
 
-Milestone 1 exposes one configured development tenant and a bootstrap API key. It must not be treated as multi-tenant production authentication. Full OIDC and tenant-aware RBAC enforcement are blocked on Milestone 3 and tracked separately. The database schema already carries tenant IDs and foreign keys to prevent accidental global records.
+Tenant-scoped service accounts and guarded OIDC bearer authentication are implemented. Incident, source, policy and audit APIs use the authenticated tenant. Manual incident creation provisions a reserved internal source for each tenant on first use; `manual-api` is not available via the public webhook or source-test routes, even when unauthenticated webhook sources are enabled. Cross-tenant regression tests cover source visibility and provisioning. A complete tenant isolation audit of every API, storage operation and plugin remains open; do not treat this as a claim of production multi-tenant isolation.
 
 ### Concurrent duplicate processing
 
