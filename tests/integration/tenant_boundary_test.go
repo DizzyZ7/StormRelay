@@ -63,7 +63,6 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	// This source is encrypted with a *different* master key from the API
 	// store. A cross-tenant lookup must return 404 in SQL before trying to
 	// decrypt it, rather than failing with a 500 and exposing key state.
