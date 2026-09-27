@@ -29,6 +29,12 @@ Ordinary control-plane JSON endpoints accept at most **1 MiB** per request body,
 
 Caller-supplied `X-Request-ID` is accepted only when it is 1–128 ASCII characters using letters, digits, hyphen, underscore, period, or colon. The API generates a new UUID when a client sends an invalid or oversized ID; it never reflects an untrusted oversized ID into logs, traces, audit metadata, or response headers.
 
+## Notification-channel configuration boundary
+
+The public create and list endpoints return notification-channel metadata only (`id`, `channel_key`, `kind`, `enabled`). Stored `config` JSON is never reflected to API readers, including viewers with `integrations:read`, and legacy rows with unknown fields stay redacted. The internal delivery worker still loads configuration directly from PostgreSQL.
+
+New `mock` channels accept only an empty configuration object; new `telegram` channels require `chat_id` (at most 128 bytes) and optionally accept a boolean `disable_preview`. Other fields, including `bot_token`, are rejected with `400 invalid_channel`. Configure the Telegram bot token via `STORMRELAY_TELEGRAM_BOT_TOKEN` instead of persisting it in channel JSON. Legacy configuration data may still contain sensitive fields at rest; migrate and encrypt those separately when per-channel credentials are supported.
+
 ## Atomic resource creation and audit
 
 The authenticated source and notification-channel creation endpoints use one PostgreSQL transaction for the resource insert and its audit entry. The API returns the one-time source credential only after the transaction commits. If the audit insert fails, both records roll back and the API returns a non-secret `500` response; invalid user input and unique-key conflicts still produce `400`. Audit hashes and metadata for sources and channels deliberately omit plaintext HMAC/bearer credentials and channel configuration secrets.
