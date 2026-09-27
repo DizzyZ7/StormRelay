@@ -41,47 +41,56 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 	}
 
 	ownSource, err := store.CreateSource(ctx, storage.CreateSourceInput{
-	    TenantID: foreignTenant, Name: "tenant-scope-" + foreignTenant,
-	    Kind: "generic", AuthMode: ingestion.AuthHMAC,
+		TenantID: foreignTenant,
+		Name:     "tenant-scope-" + foreignTenant,
+		Kind:     "generic",
+		AuthMode: ingestion.AuthHMAC,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defaultSource, err := store.CreateSource(ctx, storage.CreateSourceInput{
-	    TenantID: tenantID, Name: "default-scope-" + foreignTenant,
-	    Kind: "generic", AuthMode: ingestion.AuthHMAC,
+		TenantID: tenantID,
+		Name:     "default-scope-" + foreignTenant,
+		Kind:     "generic",
+		AuthMode: ingestion.AuthHMAC,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	account, err := store.CreateServiceAccount(ctx, storage.CreateServiceAccountInput{
-	    TenantID: foreignTenant, Name: "isolation-admin", Roles: []auth.Role{auth.RoleTenantAdmin},
-	    ActorID: "integration",
+		TenantID: foreignTenant,
+		Name:     "isolation-admin",
+		Roles:    []auth.Role{auth.RoleTenantAdmin},
+		ActorID:  "integration",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key, err := store.CreateServiceAccountKey(ctx, storage.CreateServiceAccountKeyInput{
-	    TenantID: foreignTenant, ServiceAccountID: account.ID, ActorID: "integration",
+		TenantID: foreignTenant,
+		ServiceAccountID: account.ID,
+		ActorID: "integration",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	handler := api.New(config.Config{
-	    DefaultTenantID: tenantID, BootstrapAPIKey: "isolation-bootstrap-key",
-	    AllowUnauthenticatedSources: false,
+		DefaultTenantID: tenantID,
+		BootstrapAPIKey: "isolation-bootstrap-key",
+		AllowUnauthenticatedSources: false,
 	}, store, nil, &telemetry.Metrics{}, slog.Default()).Handler()
 
 	request := func(token, method, path, body string) *httptest.ResponseRecorder {
-	    t.Helper()
-	    req := httptest.NewRequest(method, path, strings.NewReader(body))
-	    req.Header.Set("Authorization", "Bearer "+token)
-	    req.Header.Set("Content-Type", "application/json")
-	    rr := httptest.NewRecorder()
-	    handler.ServeHTTP(rr, req)
-	    return rr
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
 	}
 
 	listed := request(key.Credential, http.MethodGet, "/api/v1/sources", "")
@@ -96,17 +105,19 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 	}
 	seenOwn := false
 	for _, item := range list.Items {
-	    if item.TenantID != foreignTenant || item.ID == defaultSource.Source.ID {
-	        t.Fatalf("cross-tenant source visible: %+v", item)
-	    }
-	    if item.ID == ownSource.Source.ID { seenOwn = true }
+		if item.TenantID != foreignTenant || item.ID == defaultSource.Source.ID {
+			t.Fatalf("cross-tenant source visible: %+v", item)
+		}
+		if item.ID == ownSource.Source.ID {
+			seenOwn = true
+		}
 	}
 	if !seenOwn {
 		t.Fatal("own tenant source missing")
 	}
 
 	created := request(key.Credential, http.MethodPost, "/api/v1/sources",
-	    fmt.Sprintf(`{"name":"created-%s","kind":"generic","auth_mode":"hmac-sha256"}`, foreignTenant))
+		fmt.Sprintf(`{"name":"created-%s","kind":"generic","auth_mode":"hmac-sha256"}`, foreignTenant))
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create status=%d: %s", created.Code, created.Body.String())
 	}
@@ -126,12 +137,12 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 	}
 
 	manual := request(key.Credential, http.MethodPost, "/api/v1/incidents",
-	    `{"title":"must not write into bootstrap tenant","severity":"warning"}`)
+		`{"title":"must not write into bootstrap tenant","severity":"warning"}`)
 	if manual.Code != http.StatusNotImplemented {
 		t.Fatalf("manual cross-tenant status=%d: %s", manual.Code, manual.Body.String())
 	}
 
 	if r := request(key.Credential, http.MethodGet, "/api/v1/incidents", ""); r.Code != http.StatusOK {
-	    t.Fatalf("incident list status=%d: %s", r.Code, r.Body.String())
+		t.Fatalf("incident list status=%d: %s", r.Code, r.Body.String())
 	}
 }
