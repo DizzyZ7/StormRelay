@@ -54,7 +54,7 @@ func TestLoadRejectsInvalidEventRedeliveryPolicy(t *testing.T) {
 
 // Misconfigured security and reliability settings must never silently fall back.
 func TestLoadRejectsMalformedEnvironment(t *testing.T) {
-	tests := []struct { name, key, value, want string }{
+	tests := []struct{ name, key, value, want string }{
 		{"payload size", "STORMRELAY_MAX_PAYLOAD_BYTES", "unlimited", "must be an integer"},
 		{"payload negative", "STORMRELAY_MAX_PAYLOAD_BYTES", "-1", "between 1"},
 		{"payload excessive", "STORMRELAY_MAX_PAYLOAD_BYTES", "67108865", "between 1"},
@@ -89,7 +89,9 @@ func TestLoadAcceptsExplicitEnvironmentValues(t *testing.T) {
 	t.Setenv("STORMRELAY_AUTO_MIGRATE", "false")
 	t.Setenv("STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES", "true")
 	cfg, err := Load("test", "dev")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if cfg.MaxPayloadBytes != 2097152 || cfg.ReplayWindow != 8*time.Minute || cfg.DedupeWindow != 20*time.Minute || cfg.CorrelationWindow != 40*time.Minute || cfg.AutoMigrate || !cfg.AllowUnauthenticatedSources {
 		t.Fatalf("unexpected parsed config: %+v", cfg)
 	}
