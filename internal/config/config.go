@@ -64,6 +64,42 @@ func Load(serviceName, version string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	maxPayloadBytes, err := envIntStrict("STORMRELAY_MAX_PAYLOAD_BYTES", 1<<20)
+	if err != nil {
+		return Config{}, err
+	}
+	replayWindow, err := envDurationStrict("STORMRELAY_REPLAY_WINDOW", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	dedupeWindow, err := envDurationStrict("STORMRELAY_DEDUPE_WINDOW", 15*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	correlationWindow, err := envDurationStrict("STORMRELAY_CORRELATION_WINDOW", 30*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	workerConcurrency, err := envIntStrict("STORMRELAY_WORKER_CONCURRENCY", 8)
+	if err != nil {
+		return Config{}, err
+	}
+	eventMaxDeliveries, err := envIntStrict("STORMRELAY_EVENT_MAX_DELIVERIES", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	runbookConcurrency, err := envIntStrict("STORMRELAY_RUNBOOK_CONCURRENCY", 4)
+	if err != nil {
+		return Config{}, err
+	}
+	autoMigrate, err := envBoolStrict("STORMRELAY_AUTO_MIGRATE", true)
+	if err != nil {
+		return Config{}, err
+	}
+	allowUnauthenticatedSources, err := envBoolStrict("STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES", false)
+	if err != nil {
+		return Config{}, err
+	}
 	traceEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"))
 	if traceEndpoint == "" {
 		traceEndpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
@@ -82,18 +118,18 @@ func Load(serviceName, version string) (Config, error) {
 		BootstrapAPIKey:             os.Getenv("STORMRELAY_BOOTSTRAP_API_KEY"),
 		PublicBaseURL:               env("STORMRELAY_PUBLIC_BASE_URL", "http://localhost:8080"),
 		DefaultTenantID:             env("STORMRELAY_DEFAULT_TENANT_ID", "00000000-0000-4000-8000-000000000001"),
-		MaxPayloadBytes:             int64(envInt("STORMRELAY_MAX_PAYLOAD_BYTES", 1<<20)),
-		ReplayWindow:                envDuration("STORMRELAY_REPLAY_WINDOW", 5*time.Minute),
-		DedupeWindow:                envDuration("STORMRELAY_DEDUPE_WINDOW", 15*time.Minute),
-		CorrelationWindow:           envDuration("STORMRELAY_CORRELATION_WINDOW", 30*time.Minute),
-		WorkerConcurrency:           envInt("STORMRELAY_WORKER_CONCURRENCY", 8),
-		EventMaxDeliveries:          envInt("STORMRELAY_EVENT_MAX_DELIVERIES", 5),
+		MaxPayloadBytes:             int64(maxPayloadBytes),
+		ReplayWindow:                replayWindow,
+		DedupeWindow:                dedupeWindow,
+		CorrelationWindow:           correlationWindow,
+		WorkerConcurrency:           workerConcurrency,
+		EventMaxDeliveries:          eventMaxDeliveries,
 		EventRetryBaseDelay:         eventRetryBaseDelay,
 		EventRetryMaxDelay:          eventRetryMaxDelay,
-		RunbookConcurrency:          envInt("STORMRELAY_RUNBOOK_CONCURRENCY", 4),
-		AutoMigrate:                 envBool("STORMRELAY_AUTO_MIGRATE", true),
+		RunbookConcurrency:          runbookConcurrency,
+		AutoMigrate:                 autoMigrate,
 		TelegramToken:               os.Getenv("STORMRELAY_TELEGRAM_BOT_TOKEN"),
-		AllowUnauthenticatedSources: envBool("STORMRELAY_ALLOW_UNAUTHENTICATED_SOURCES", false),
+		AllowUnauthenticatedSources: allowUnauthenticatedSources,
 		RunbookHTTPAllowedHosts:     envCSV("STORMRELAY_RUNBOOK_HTTP_ALLOWED_HOSTS"),
 		PluginAllowedHosts:          envCSV("STORMRELAY_PLUGIN_ALLOWED_HOSTS"),
 		OTLPTraceEndpoint:           traceEndpoint,
@@ -102,6 +138,12 @@ func Load(serviceName, version string) (Config, error) {
 	}
 	if cfg.BootstrapAPIKey == "" {
 		return Config{}, fmt.Errorf("STORMRELAY_BOOTSTRAP_API_KEY is required")
+	}
+	if cfg.MaxPayloadBytes < 1 || cfg.MaxPayloadBytes > 64<<20 {
+		return Config{}, fmt.Errorf("STORMRELAY_MAX_PAYLOAD_BYTES must be between 1 and 67108864")
+	}
+	if cfg.ReplayWindow <= 0 || cfg.DedupeWindow <= 0 || cfg.CorrelationWindow <= 0 {
+		return Config{}, fmt.Errorf("replay, dedupe, and correlation windows must be positive")
 	}
 	if cfg.WorkerConcurrency < 1 || cfg.WorkerConcurrency > 128 {
 		return Config{}, fmt.Errorf("worker concurrency must be between 1 and 128")
@@ -143,17 +185,18 @@ func env(name, fallback string) string {
 	}
 	return fallback
 }
-func envInt(name string, fallback int) int {
-	v := strings.TrimSpace(os.Getenv(name))
-	if v == "" {
-		return fallback
+func envIntStrict(name string, fallback int) (int, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
 	}
-	n, err := strconv.Atoi(v)
+	parsed, err := strconv.Atoi(value)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
 	}
-	return n
+	return parsed, nil
 }
+
 func envFloatStrict(name string, fallback float64) (float64, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
@@ -168,28 +211,18 @@ func envFloatStrict(name string, fallback float64) (float64, error) {
 	}
 	return parsed, nil
 }
-func envBool(name string, fallback bool) bool {
-	v := strings.TrimSpace(os.Getenv(name))
-	if v == "" {
-		return fallback
+func envBoolStrict(name string, fallback bool) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
 	}
-	b, err := strconv.ParseBool(v)
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
-		return fallback
+		return false, fmt.Errorf("%s must be a boolean: %w", name, err)
 	}
-	return b
+	return parsed, nil
 }
-func envDuration(name string, fallback time.Duration) time.Duration {
-	v := strings.TrimSpace(os.Getenv(name))
-	if v == "" {
-		return fallback
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return fallback
-	}
-	return d
-}
+
 func envDurationStrict(name string, fallback time.Duration) (time.Duration, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
