@@ -13,7 +13,7 @@ type NotificationChannel struct {
 	ID         string          `json:"id"`
 	ChannelKey string          `json:"channel_key"`
 	Kind       string          `json:"kind"`
-	Config     json.RawMessage `json:"config"`
+	Config     json.RawMessage `json:"-"` // internal delivery config; never serialize to API consumers
 	Enabled    bool            `json:"enabled"`
 }
 
@@ -32,8 +32,10 @@ func (s *Store) CreateNotificationChannelWithAudit(ctx context.Context, tenantID
 }
 
 func (s *Store) createNotificationChannel(ctx context.Context, tenantID, key, kind string, config json.RawMessage, audit *AuditInput) (NotificationChannel, error) {
-	if len(config) == 0 {
-		config = json.RawMessage(`{}`)
+	var err error
+	config, err = normalizeChannelConfig(kind, config)
+	if err != nil {
+		return NotificationChannel{}, err
 	}
 	channelID, err := id.New()
 	if err != nil {
@@ -67,7 +69,7 @@ func (s *Store) createNotificationChannel(ctx context.Context, tenantID, key, ki
 	return out, nil
 }
 func (s *Store) ListNotificationChannels(ctx context.Context, tenantID string) ([]NotificationChannel, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,channel_key,kind,config,enabled FROM notification_channels WHERE tenant_id=$1 ORDER BY channel_key`, tenantID)
+	rows, err := s.pool.Query(ctx, `SELECT id,channel_key,kind,enabled FROM notification_channels WHERE tenant_id=$1 ORDER BY channel_key`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +77,7 @@ func (s *Store) ListNotificationChannels(ctx context.Context, tenantID string) (
 	out := []NotificationChannel{}
 	for rows.Next() {
 		var x NotificationChannel
-		if err := rows.Scan(&x.ID, &x.ChannelKey, &x.Kind, &x.Config, &x.Enabled); err != nil {
+		if err := rows.Scan(&x.ID, &x.ChannelKey, &x.Kind, &x.Enabled); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
