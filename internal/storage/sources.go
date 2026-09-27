@@ -17,6 +17,9 @@ func (s *Store) CreateSource(ctx context.Context, in CreateSourceInput) (CreateS
 	if strings.TrimSpace(in.Name) == "" {
 		return CreateSourceResult{}, fmt.Errorf("source name is required")
 	}
+	if strings.EqualFold(strings.TrimSpace(in.Name), "manual-api") {
+		return CreateSourceResult{}, fmt.Errorf("manual-api is reserved for internal incident creation")
+	}
 	if in.Kind == "" {
 		in.Kind = "generic"
 	}
