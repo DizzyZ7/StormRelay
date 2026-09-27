@@ -138,9 +138,15 @@ func (s *Server) apiRoutes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+		requestID := boundedRequestID(r.Header.Get("X-Request-ID"))
 		if requestID == "" {
-			requestID, _ = id.New()
+			var err error
+			requestID, err = id.New()
+			if err != nil {
+				s.logger.Error("unable to generate request ID", "error", err)
+				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+				return
+			}
 		}
 		ctx := telemetry.WithRequestID(r.Context(), requestID)
 		traceParent := r.Header.Get("traceparent")
@@ -299,13 +305,7 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code, messag
 	writeJSON(w, status, out)
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		writeError(w, r, http.StatusBadRequest, "invalid_json", "request body is invalid", nil)
-		return false
-	}
-	return true
+	return decodeBoundedJSON(w, r, dst)
 }
 func safePath(path string) string {
 	if strings.HasPrefix(path, "/api/v1/ack/") {

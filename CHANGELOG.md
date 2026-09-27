@@ -43,6 +43,8 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - Enforce tenant ownership in SQL before retrieving or decrypting HMAC source credentials for authenticated source tests; preserve unscoped source-ID lookup exclusively for inbound webhooks and cover cross-tenant access using deliberately mismatched encryption keys.
 - Reject test event publication from disabled sources, matching the ordinary webhook ingestion guard.
 
+- Cap control-plane JSON request bodies at 1 MiB (including chunked transfer), require exactly one non-null document, and reject oversized caller-provided request IDs by generating a safe UUID instead of reflecting untrusted data into logs and audit trails.
+
 
 - Make acknowledgement links GET/HEAD read-only and require an explicit POST from a confirmation page; add strict no-referrer, no-store, CSP and anti-framing response headers to mitigate accidental acknowledgement by link previews and scanners.
 
