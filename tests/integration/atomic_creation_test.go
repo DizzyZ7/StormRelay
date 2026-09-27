@@ -136,6 +136,20 @@ func TestResourceCreationAndAuditCommitAtomically(t *testing.T) {
 		}
 	}
 
+	// Unique-key conflicts and reserved names remain client validation errors.
+	duplicateSource := post("/api/v1/sources", map[string]any{
+		"name": "atomic-source-" + tenant, "kind": "generic", "auth_mode": "hmac-sha256",
+	})
+	if duplicateSource.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate source response=%d, want 400", duplicateSource.Code)
+	}
+	duplicateChannel := post("/api/v1/notification-channels", map[string]any{
+		"key": "atomic-channel-" + tenant, "kind": "mock", "config": map[string]any{},
+	})
+	if duplicateChannel.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate channel response=%d, want 400", duplicateChannel.Code)
+	}
+
 	// The trigger affects only this test's tenant, never unrelated tenants.
 	suffix := strings.ReplaceAll(tenant, "-", "")
 	functionName := "reject_atomic_creation_audit_" + suffix
@@ -175,6 +189,33 @@ func TestResourceCreationAndAuditCommitAtomically(t *testing.T) {
 	}
 	if sources != 0 || channels != 0 {
 		t.Fatalf("resources survived failed audit transaction: sources=%d channels=%d", sources, channels)
+	}
+	// After a transient audit outage the same names must be reusable: no
+	// orphan source, stranded credential, or ghost channel remains.
+	if _, err := conn.Exec(ctx, "DROP TRIGGER "+triggerName+" ON audit_entries"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, "DROP FUNCTION "+functionName+"()"); err != nil {
+		t.Fatal(err)
+	}
+	retrySource := post("/api/v1/sources", map[string]any{
+		"name": sourceFailureName, "kind": "generic", "auth_mode": "bearer",
+	})
+	if retrySource.Code != http.StatusCreated {
+		t.Fatalf("source retry after audit recovery=%d: %s", retrySource.Code, retrySource.Body.String())
+	}
+	var recoveredSource storage.CreateSourceResult
+	if err := json.Unmarshal(retrySource.Body.Bytes(), &recoveredSource); err != nil {
+		t.Fatal(err)
+	}
+	if recoveredSource.Credential == "" {
+		t.Fatal("successful source retry did not return a new one-time credential")
+	}
+	retryChannel := post("/api/v1/notification-channels", map[string]any{
+		"key": channelFailureKey, "kind": "mock", "config": map[string]any{},
+	})
+	if retryChannel.Code != http.StatusCreated {
+		t.Fatalf("channel retry after audit recovery=%d: %s", retryChannel.Code, retryChannel.Body.String())
 	}
 }
 
