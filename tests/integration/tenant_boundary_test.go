@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/config"
 	"github.com/DizzyZ7/StormRelay/internal/id"
 	"github.com/DizzyZ7/StormRelay/internal/ingestion"
+	"github.com/DizzyZ7/StormRelay/internal/messaging"
 	"github.com/DizzyZ7/StormRelay/internal/storage"
 	"github.com/DizzyZ7/StormRelay/internal/telemetry"
 	"github.com/jackc/pgx/v5"
@@ -77,11 +80,18 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	bus, err := messaging.Connect(natsURL(), "TENANT_MANUAL_"+suffix, "stormrelay.tenant.manual."+suffix, "consumer_"+suffix, "tenant-boundary-integration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(bus.Close)
+
 	handler := api.New(config.Config{
 		DefaultTenantID:             tenantID,
 		BootstrapAPIKey:             "isolation-bootstrap-key",
-		AllowUnauthenticatedSources: false,
-	}, store, nil, &telemetry.Metrics{}, slog.Default()).Handler()
+		AllowUnauthenticatedSources: true,
+	}, store, bus, &telemetry.Metrics{}, slog.Default()).Handler()
 
 	request := func(token, method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -138,11 +148,88 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 
 	manual := request(key.Credential, http.MethodPost, "/api/v1/incidents",
 		`{"title":"must not write into bootstrap tenant","severity":"warning"}`)
-	if manual.Code != http.StatusNotImplemented {
-		t.Fatalf("manual cross-tenant status=%d: %s", manual.Code, manual.Body.String())
+	if manual.Code != http.StatusAccepted {
+		t.Fatalf("manual tenant status=%d: %s", manual.Code, manual.Body.String())
+	}
+	foreignManualID, err := store.EnsureManualSource(ctx, foreignTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultManualID, err := store.EnsureManualSource(ctx, tenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if foreignManualID == defaultManualID {
+		t.Fatalf("tenant manual sources share ID %s", foreignManualID)
+	}
+	manualWebhook := request(key.Credential, http.MethodPost, "/api/v1/webhooks/"+foreignManualID, "{}")
+	if manualWebhook.Code != http.StatusNotFound {
+		t.Fatalf("manual source externally reachable: %d", manualWebhook.Code)
+	}
+	manualTest := request(key.Credential, http.MethodPost, "/api/v1/sources/"+foreignManualID+"/test", "")
+	if manualTest.Code != http.StatusNotFound {
+		t.Fatalf("internal manual source exposed via source test: %d", manualTest.Code)
 	}
 
 	if r := request(key.Credential, http.MethodGet, "/api/v1/incidents", ""); r.Code != http.StatusOK {
 		t.Fatalf("incident list status=%d: %s", r.Code, r.Body.String())
+	}
+}
+
+// Concurrent first requests must converge on one tenant-private source.
+func TestConcurrentManualSourceProvisioning(t *testing.T) {
+	store := openStore(t)
+	ctx := context.Background()
+	otherTenant, err := id.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(ctx, databaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, "INSERT INTO tenants(id,slug,name) VALUES($1,$2,$3)", otherTenant, "manual-"+otherTenant, "Concurrent manual source tenant"); err != nil {
+		t.Fatal(err)
+	}
+	const concurrent = 12
+	ids := make(chan string, concurrent)
+	errs := make(chan error, concurrent)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrent; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			created, err := store.EnsureManualSource(ctx, otherTenant)
+			ids <- created
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := ""
+	for next := range ids {
+		if first == "" {
+			first = next
+		}
+		if first != next {
+			t.Fatalf("manual source IDs differ: %s and %s", first, next)
+		}
+	}
+	var total int
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM event_sources WHERE tenant_id=$1 AND name='manual-api'", otherTenant).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("manual source count=%d, want 1", total)
+	}
+	if _, err := store.CreateSource(ctx, storage.CreateSourceInput{TenantID: otherTenant, Name: "MANUAL-API", AuthMode: ingestion.AuthHMAC}); err == nil {
+		t.Fatal("public source creation accepted reserved manual source name")
 	}
 }
