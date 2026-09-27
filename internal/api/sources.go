@@ -50,7 +50,7 @@ func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/sources/"), "/test")
-	creds, err := s.store.GetSourceCredentials(r.Context(), path)
+	creds, err := s.store.GetSourceCredentialsForTenant(r.Context(), tenantID(r), path)
 	if err != nil {
 		mapStoreError(w, r, err)
 		return
