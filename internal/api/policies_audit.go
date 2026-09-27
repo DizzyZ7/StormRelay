@@ -80,6 +80,10 @@ func (s *Server) createNotificationChannel(w http.ResponseWriter, r *http.Reques
 		RequestID: telemetry.RequestID(r.Context()), TraceID: telemetry.TraceID(r.Context()),
 	})
 	if err != nil {
+		if storage.IsInvalidCreateInput(err) {
+			writeError(w, r, http.StatusBadRequest, "invalid_channel", "notification channel could not be created", nil)
+			return
+		}
 		s.logger.Error("notification channel transaction failed", "request_id", telemetry.RequestID(r.Context()), "error", err)
 		writeError(w, r, http.StatusInternalServerError, "channel_creation_failed", "notification channel could not be created", nil)
 		return
