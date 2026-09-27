@@ -89,10 +89,31 @@ func (s *Store) ListSources(ctx context.Context, tenantID string, limit int) ([]
 	return out, rows.Err()
 }
 
+// GetSourceCredentials is used by inbound webhooks, where the random source ID
+// identifies the tenant before the payload can be authenticated.
 func (s *Store) GetSourceCredentials(ctx context.Context, sourceID string) (SourceCredentials, error) {
+	return s.getSourceCredentials(ctx, "", sourceID)
+}
+
+// GetSourceCredentialsForTenant enforces tenant ownership in the SQL lookup
+// before retrieving or decrypting any credential for authenticated API callers.
+func (s *Store) GetSourceCredentialsForTenant(ctx context.Context, tenantID, sourceID string) (SourceCredentials, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return SourceCredentials{}, errNoRows
+	}
+	return s.getSourceCredentials(ctx, tenantID, sourceID)
+}
+
+func (s *Store) getSourceCredentials(ctx context.Context, tenantID, sourceID string) (SourceCredentials, error) {
 	var out SourceCredentials
 	var encrypted []byte
-	err := s.pool.QueryRow(ctx, `SELECT id,tenant_id,name,kind,auth_mode,enabled,rate_limit_per_second,rate_limit_burst,created_at,version,encrypted_secret,bearer_hash FROM event_sources WHERE id=$1`, sourceID).Scan(&out.Source.ID, &out.Source.TenantID, &out.Source.Name, &out.Source.Kind, &out.Source.AuthMode, &out.Source.Enabled, &out.Source.RateLimitPerSecond, &out.Source.RateLimitBurst, &out.Source.CreatedAt, &out.Source.Version, &encrypted, &out.BearerHash)
+	query := `SELECT id,tenant_id,name,kind,auth_mode,enabled,rate_limit_per_second,rate_limit_burst,created_at,version,encrypted_secret,bearer_hash FROM event_sources WHERE id=$1`
+	args := []any{sourceID}
+	if tenantID != "" {
+		query += " AND tenant_id=$2"
+		args = append(args, tenantID)
+	}
+	err := s.pool.QueryRow(ctx, query, args...).Scan(&out.Source.ID, &out.Source.TenantID, &out.Source.Name, &out.Source.Kind, &out.Source.AuthMode, &out.Source.Enabled, &out.Source.RateLimitPerSecond, &out.Source.RateLimitBurst, &out.Source.CreatedAt, &out.Source.Version, &encrypted, &out.BearerHash)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return SourceCredentials{}, errNoRows

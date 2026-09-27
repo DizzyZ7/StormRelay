@@ -50,13 +50,17 @@ func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/sources/"), "/test")
-	creds, err := s.store.GetSourceCredentials(r.Context(), path)
+	creds, err := s.store.GetSourceCredentialsForTenant(r.Context(), tenantID(r), path)
 	if err != nil {
 		mapStoreError(w, r, err)
 		return
 	}
 	if creds.Source.TenantID != tenantID(r) || creds.Source.Name == "manual-api" {
 		writeError(w, r, http.StatusNotFound, "not_found", "resource not found", nil)
+		return
+	}
+	if !creds.Source.Enabled {
+		writeError(w, r, http.StatusGone, "source_disabled", "event source is disabled", nil)
 		return
 	}
 	body := []byte(`{"type":"stormrelay.source.test","subject":"Source connectivity test","severity":"info","labels":{"service":"stormrelay","environment":"test"}}`)

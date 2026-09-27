@@ -18,6 +18,7 @@ import (
 	"github.com/DizzyZ7/StormRelay/internal/api"
 	"github.com/DizzyZ7/StormRelay/internal/auth"
 	"github.com/DizzyZ7/StormRelay/internal/config"
+	"github.com/DizzyZ7/StormRelay/internal/cryptox"
 	"github.com/DizzyZ7/StormRelay/internal/id"
 	"github.com/DizzyZ7/StormRelay/internal/ingestion"
 	"github.com/DizzyZ7/StormRelay/internal/messaging"
@@ -60,6 +61,47 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// This source is encrypted with a *different* master key from the API
+	// store. A cross-tenant lookup must return 404 in SQL before trying to
+	// decrypt it, rather than failing with a 500 and exposing key state.
+	otherBox, err := cryptox.NewBox(bytes.Repeat([]byte{0xA5}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherStore, err := storage.Open(ctx, databaseURL(), otherBox, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(otherStore.Close)
+	unreadable, err := otherStore.CreateSource(ctx, storage.CreateSourceInput{
+		TenantID: tenantID,
+		Name:     "other-key-" + foreignTenant,
+		Kind:     "generic",
+		AuthMode: ingestion.AuthHMAC,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = conn.Exec(context.Background(), "DELETE FROM event_sources WHERE id=$1", unreadable.Source.ID)
+	}()
+	scoped, err := store.GetSourceCredentialsForTenant(ctx, foreignTenant, ownSource.Source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(scoped.HMACSecret) != ownSource.Credential {
+		t.Fatal("own-tenant source credential did not decrypt")
+	}
+	if _, err := store.GetSourceCredentialsForTenant(ctx, foreignTenant, unreadable.Source.ID); !storage.IsNoRows(err) {
+		t.Fatalf("cross-tenant lookup must return not-found before decrypt: %v", err)
+	}
+	if _, err := store.GetSourceCredentialsForTenant(ctx, "", ownSource.Source.ID); !storage.IsNoRows(err) {
+		t.Fatalf("missing tenant must fail closed: %v", err)
+	}
+	if _, err := store.GetSourceCredentials(ctx, unreadable.Source.ID); err == nil || storage.IsNoRows(err) {
+		t.Fatalf("unscoped lookup should fail to decrypt different-key fixture: %v", err)
 	}
 
 	account, err := store.CreateServiceAccount(ctx, storage.CreateServiceAccountInput{
@@ -144,6 +186,21 @@ func TestTenantScopedSourceAPI(t *testing.T) {
 	crossTest := request(key.Credential, http.MethodPost, "/api/v1/sources/"+defaultSource.Source.ID+"/test", "")
 	if crossTest.Code != http.StatusNotFound {
 		t.Fatalf("cross-tenant source test status=%d: %s", crossTest.Code, crossTest.Body.String())
+	}
+
+	crossKeyTest := request(key.Credential, http.MethodPost, "/api/v1/sources/"+unreadable.Source.ID+"/test", "")
+	if crossKeyTest.Code != http.StatusNotFound {
+		t.Fatalf("cross-tenant source with unreadable credential returned %d: %s", crossKeyTest.Code, crossKeyTest.Body.String())
+	}
+
+	// Disabling a source must also block its authenticated test endpoint;
+	// otherwise that endpoint bypasses the normal webhook enabled guard.
+	if _, err := conn.Exec(ctx, "UPDATE event_sources SET enabled=false WHERE id=$1", ownSource.Source.ID); err != nil {
+		t.Fatal(err)
+	}
+	disabledTest := request(key.Credential, http.MethodPost, "/api/v1/sources/"+ownSource.Source.ID+"/test", "")
+	if disabledTest.Code != http.StatusGone {
+		t.Fatalf("disabled source test returned %d: %s", disabledTest.Code, disabledTest.Body.String())
 	}
 
 	manual := request(key.Credential, http.MethodPost, "/api/v1/incidents",
