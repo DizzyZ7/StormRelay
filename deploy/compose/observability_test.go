@@ -178,3 +178,54 @@ func mustRead(t *testing.T, path string) []byte {
 	}
 	return data
 }
+
+// Demo credentials must never be reachable on every host network interface.
+func TestDemoPublishedPortsAreLoopbackOnly(t *testing.T) {
+	var model struct {
+		Services map[string]struct {
+			Ports []string `yaml:"ports"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(mustRead(t, "docker-compose.yml"), &model); err != nil {
+		t.Fatal(err)
+	}
+	wantPorts := map[string][]string{
+		"nats": {"4222", "8222"},
+		"server": {"8080"},
+		"worker": {"8081"},
+		"grafana": {"3000"},
+		"prometheus": {"9090"},
+		"tempo": {"3200"},
+		"otel-collector": {"4317", "13133"},
+	}
+	for service, ports := range wantPorts {
+		cfg, ok := model.Services[service]
+		if !ok {
+			t.Errorf("missing demo service %q", service)
+			continue
+		}
+		if len(cfg.Ports) != len(ports) {
+			t.Errorf("%s published ports=%v; want %v", service, cfg.Ports, ports)
+		}
+		for _, port := range ports {
+			published := "127.0.0.1:" + port + ":" + port
+			found := false
+			for _, actual := range cfg.Ports {
+				if actual == published {
+					found = true
+				}
+				if !strings.HasPrefix(actual, "127.0.0.1:") {
+					t.Errorf("%s port %q is not loopback-only", service, actual)
+				}
+			}
+			if !found {
+				t.Errorf("%s is missing localhost mapping %q", service, published)
+			}
+		}
+	}
+	for name, service := range model.Services {
+		if _, listed := wantPorts[name]; !listed && len(service.Ports) > 0 {
+			t.Errorf("unexpected published ports on service %q: %v", name, service.Ports)
+		}
+	}
+}
