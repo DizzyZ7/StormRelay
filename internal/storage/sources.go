@@ -13,7 +13,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// CreateSource is retained for internal callers that do not require an HTTP audit.
 func (s *Store) CreateSource(ctx context.Context, in CreateSourceInput) (CreateSourceResult, error) {
+	return s.createSource(ctx, in, nil)
+}
+
+// CreateSourceWithAudit commits the source and its audit entry atomically.
+// A one-time plaintext credential is returned only after the transaction commits.
+func (s *Store) CreateSourceWithAudit(ctx context.Context, in CreateSourceInput, audit AuditInput) (CreateSourceResult, error) {
+	if audit.TenantID != in.TenantID || audit.TenantID == "" || strings.TrimSpace(audit.ActorID) == "" || strings.TrimSpace(audit.ActorType) == "" {
+		return CreateSourceResult{}, fmt.Errorf("source audit tenant and actor must match the authenticated request")
+	}
+	return s.createSource(ctx, in, &audit)
+}
+
+func (s *Store) createSource(ctx context.Context, in CreateSourceInput, audit *AuditInput) (CreateSourceResult, error) {
 	if strings.TrimSpace(in.Name) == "" {
 		return CreateSourceResult{}, fmt.Errorf("source name is required")
 	}
@@ -59,12 +73,32 @@ func (s *Store) CreateSource(ctx context.Context, in CreateSourceInput) (CreateS
 	default:
 		return CreateSourceResult{}, fmt.Errorf("unsupported auth mode %q", in.AuthMode)
 	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return CreateSourceResult{}, fmt.Errorf("begin source creation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
 	var out Source
-	err = s.pool.QueryRow(ctx, `INSERT INTO event_sources(id,tenant_id,name,kind,auth_mode,encrypted_secret,bearer_hash,rate_limit_per_second,rate_limit_burst)
+	err = tx.QueryRow(ctx, `INSERT INTO event_sources(id,tenant_id,name,kind,auth_mode,encrypted_secret,bearer_hash,rate_limit_per_second,rate_limit_burst)
 	VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,tenant_id,name,kind,auth_mode,enabled,rate_limit_per_second,rate_limit_burst,created_at,version`,
 		sourceID, in.TenantID, in.Name, in.Kind, in.AuthMode, encrypted, hash, in.RateLimitPerSecond, in.RateLimitBurst).Scan(&out.ID, &out.TenantID, &out.Name, &out.Kind, &out.AuthMode, &out.Enabled, &out.RateLimitPerSecond, &out.RateLimitBurst, &out.CreatedAt, &out.Version)
 	if err != nil {
 		return CreateSourceResult{}, fmt.Errorf("create source: %w", err)
+	}
+	if audit != nil {
+		entry := *audit
+		entry.Action = "source.created"
+		entry.ResourceType = "source"
+		entry.ResourceID = out.ID
+		entry.Before = nil
+		entry.After = out
+		entry.Metadata = map[string]any{"kind": out.Kind, "auth_mode": out.AuthMode}
+		if err := appendAudit(ctx, tx, entry); err != nil {
+			return CreateSourceResult{}, fmt.Errorf("audit source creation: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CreateSourceResult{}, fmt.Errorf("commit source creation: %w", err)
 	}
 	return CreateSourceResult{Source: out, Credential: credential}, nil
 }
