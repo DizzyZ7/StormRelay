@@ -97,6 +97,8 @@ Only W3C `traceparent` is persisted across JetStream, notification outbox, and d
 
 OIDC providers are registered through the tenant-admin API rather than environment variables. Registration performs guarded discovery and stores the exact issuer, API audience, JWKS URI, and allowed asymmetric signing algorithms. See `docs/identity.md`.
 
+Acknowledgement links are read-only on GET/HEAD and show a confirmation form. Only an explicit POST acknowledges an incident, preventing link previews and automated scanners from silently changing incident state.
+
 ## Command-line client
 
 ```bash
