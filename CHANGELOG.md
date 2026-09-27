@@ -33,6 +33,8 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ### Fixed
 
+- Bind all development Docker Compose published ports to the host loopback interface instead of every network interface; add a Compose YAML regression test to prevent unsafe exposure of demo credentials and internal observability endpoints.
+
 - Release HMAC replay reservations when normalization or JetStream durable acceptance fails, allowing an identical signed request to be retried after a `503` response while retaining replay protection after `202 Accepted`.
 - Canonicalize accepted HMAC replay identities and fail closed at replay-cache capacity without evicting active reservations.
 
